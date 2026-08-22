@@ -67,7 +67,7 @@ async fn handle_health() -> &'static str {
 async fn handle_dashboard(State(state): State<AppState>) -> Html<String> {
     let detector = state.detector.lock().await;
     let mut rows = String::new();
-    for (_, proc) in &detector.tracked {
+    for proc in detector.tracked.values() {
         rows.push_str(&format!(
             "<tr>
                 <td><b>{}</b></td>
