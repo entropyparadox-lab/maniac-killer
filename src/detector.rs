@@ -191,12 +191,16 @@ impl Detector {
 
                 // Determine if we should trigger an alert
                 let streak_met = entry.cpu_streak >= required_streak || is_orphan_daemon;
-                let not_muted = entry.muted_until.map_or(true, |m| now > m);
-                let alert_cooldown_ok = entry
-                    .last_alert_time
-                    .map_or(true, |t| (now - t).num_minutes() >= 15);
+                let alert_cooldown_ok = match entry.last_alert_time {
+                    Some(t) => (now - t).num_minutes() >= 15,
+                    None => true,
+                };
+                let not_muted_ok = match entry.muted_until {
+                    Some(m) => now > m,
+                    None => true,
+                };
 
-                if streak_met && not_muted && alert_cooldown_ok {
+                if streak_met && not_muted_ok && alert_cooldown_ok {
                     entry.reason = if is_orphan_daemon {
                         format!("Orphan daemon (PPID 1, CPU {:.1}%, {}MB)", cpu, mem_mb)
                     } else if is_memory_hog {
