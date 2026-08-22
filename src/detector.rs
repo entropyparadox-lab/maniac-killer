@@ -47,9 +47,27 @@ impl Detector {
         let cmd_lower = cmdline.to_lowercase();
 
         let compiler_names = [
-            "rustc", "swiftc", "clang", "clang++", "cc1", "cc1plus", "tsc", "esbuild", "swc",
-            "next-server", "webpack", "rollup", "vite", "turbo", "turbopack",
-            "javac", "kotlinc", "go", "ld", "ld64", "lld",
+            "rustc",
+            "swiftc",
+            "clang",
+            "clang++",
+            "cc1",
+            "cc1plus",
+            "tsc",
+            "esbuild",
+            "swc",
+            "next-server",
+            "webpack",
+            "rollup",
+            "vite",
+            "turbo",
+            "turbopack",
+            "javac",
+            "kotlinc",
+            "go",
+            "ld",
+            "ld64",
+            "lld",
         ];
 
         let is_compiler = compiler_names

@@ -64,7 +64,8 @@ impl Auth {
 
         // 2. HMAC Expiring Signature check
         if let (Some(p), Some(st), Some(ts)) = (pid, start_time, timestamp) {
-            return Self::verify_signature(master_secret, action, p, st, ts, token, 900); // 15 mins
+            return Self::verify_signature(master_secret, action, p, st, ts, token, 900);
+            // 15 mins
         }
 
         false
@@ -134,18 +135,32 @@ mod tests {
         let now = Utc::now().timestamp();
 
         let sig = Auth::sign_action(secret, action, pid, st, now);
-        assert!(Auth::verify_signature(secret, action, pid, st, now, &sig, 900));
+        assert!(Auth::verify_signature(
+            secret, action, pid, st, now, &sig, 900
+        ));
 
         // Wrong secret
-        assert!(!Auth::verify_signature("wrong-secret", action, pid, st, now, &sig, 900));
+        assert!(!Auth::verify_signature(
+            "wrong-secret",
+            action,
+            pid,
+            st,
+            now,
+            &sig,
+            900
+        ));
 
         // Tampered PID
-        assert!(!Auth::verify_signature(secret, action, 54321, st, now, &sig, 900));
+        assert!(!Auth::verify_signature(
+            secret, action, 54321, st, now, &sig, 900
+        ));
 
         // Expired signature
         let old_ts = now - 1000; // 1000s ago (> 900s)
         let old_sig = Auth::sign_action(secret, action, pid, st, old_ts);
-        assert!(!Auth::verify_signature(secret, action, pid, st, old_ts, &old_sig, 900));
+        assert!(!Auth::verify_signature(
+            secret, action, pid, st, old_ts, &old_sig, 900
+        ));
     }
 
     #[test]

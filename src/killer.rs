@@ -23,7 +23,11 @@ pub struct Executioner;
 impl Executioner {
     /// Recursively discover all child/descendant PIDs belonging to the target process tree,
     /// while strictly filtering out any descendant process that qualifies as immune/protected.
-    fn find_safe_process_tree(sys: &System, root_pid: u32, custom_whitelist: &[String]) -> Vec<u32> {
+    fn find_safe_process_tree(
+        sys: &System,
+        root_pid: u32,
+        custom_whitelist: &[String],
+    ) -> Vec<u32> {
         let mut tree = Vec::new();
         let mut queue = vec![root_pid];
         let mut visited = HashSet::new();

@@ -31,19 +31,37 @@ impl SlackNotifier {
         let client = Client::new();
 
         // Generate HMAC-SHA256 Expiring Action Signatures (Valid for 15 mins)
-        let kill_sig = Auth::sign_action(&config.auth_token, "kill", proc.pid, proc.start_time, now_ts);
+        let kill_sig = Auth::sign_action(
+            &config.auth_token,
+            "kill",
+            proc.pid,
+            proc.start_time,
+            now_ts,
+        );
         let kill_url = format!(
             "{}/confirm-kill?pid={}&st={}&ts={}&sig={}",
             base_url, proc.pid, proc.start_time, now_ts, kill_sig
         );
 
-        let mute_sig = Auth::sign_action(&config.auth_token, "mute", proc.pid, proc.start_time, now_ts);
+        let mute_sig = Auth::sign_action(
+            &config.auth_token,
+            "mute",
+            proc.pid,
+            proc.start_time,
+            now_ts,
+        );
         let mute_url = format!(
             "{}/mute?pid={}&st={}&ts={}&sig={}&hours=1",
             base_url, proc.pid, proc.start_time, now_ts, mute_sig
         );
 
-        let wl_sig = Auth::sign_action(&config.auth_token, "whitelist", proc.pid, proc.start_time, now_ts);
+        let wl_sig = Auth::sign_action(
+            &config.auth_token,
+            "whitelist",
+            proc.pid,
+            proc.start_time,
+            now_ts,
+        );
         let wl_url = format!(
             "{}/whitelist?name={}&ts={}&sig={}",
             base_url,

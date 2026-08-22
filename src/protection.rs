@@ -102,10 +102,7 @@ impl Protection {
 
         // 2. Built-in Immune keyword check across name & cmdline
         for &kw in Self::IMMUNE_KEYWORDS {
-            if name_lower == kw
-                || name_lower.contains(kw)
-                || cmd_lower.contains(kw)
-            {
+            if name_lower == kw || name_lower.contains(kw) || cmd_lower.contains(kw) {
                 return true;
             }
         }
@@ -125,11 +122,7 @@ impl Protection {
     }
 
     /// Process-level deep inspection including binary path (exe)
-    pub fn is_process_protected(
-        pid: u32,
-        proc: &Process,
-        custom_whitelist: &[String],
-    ) -> bool {
+    pub fn is_process_protected(pid: u32, proc: &Process, custom_whitelist: &[String]) -> bool {
         if pid <= 100 {
             return true;
         }

@@ -83,7 +83,13 @@ async fn handle_dashboard(State(state): State<AppState>) -> Html<String> {
     let now_ts = Utc::now().timestamp();
 
     for proc in detector.tracked.values() {
-        let sig = Auth::sign_action(&state.config.auth_token, "kill", proc.pid, proc.start_time, now_ts);
+        let sig = Auth::sign_action(
+            &state.config.auth_token,
+            "kill",
+            proc.pid,
+            proc.start_time,
+            now_ts,
+        );
         rows.push_str(&format!(
             "<tr>
                 <td><b>{}</b></td>
@@ -261,7 +267,11 @@ async fn handle_confirm_kill_ui(
     Query(query): Query<ActionQuery>,
     State(state): State<AppState>,
 ) -> impl IntoResponse {
-    let auth_token = query.sig.as_deref().or(query.token.as_deref()).unwrap_or_default();
+    let auth_token = query
+        .sig
+        .as_deref()
+        .or(query.token.as_deref())
+        .unwrap_or_default();
     let is_auth = Auth::is_authorized(
         &state.config.auth_token,
         "kill",
@@ -280,7 +290,12 @@ async fn handle_confirm_kill_ui(
 
     let pid = match query.pid {
         Some(p) => p,
-        None => return (StatusCode::BAD_REQUEST, Html("<h2>Missing PID parameter</h2>".to_string())),
+        None => {
+            return (
+                StatusCode::BAD_REQUEST,
+                Html("<h2>Missing PID parameter</h2>".to_string()),
+            )
+        }
     };
 
     let st = query.st.unwrap_or(0);
@@ -364,7 +379,13 @@ async fn handle_confirm_kill_ui(
     </div>
 </body>
 </html>"#,
-        pid, pid, st, pid, st, ts, escape_html(auth_token)
+        pid,
+        pid,
+        st,
+        pid,
+        st,
+        ts,
+        escape_html(auth_token)
     );
 
     (StatusCode::OK, Html(html))
@@ -440,7 +461,11 @@ async fn handle_mute_ui(
     Query(query): Query<ActionQuery>,
     State(state): State<AppState>,
 ) -> impl IntoResponse {
-    let auth_token = query.sig.as_deref().or(query.token.as_deref()).unwrap_or_default();
+    let auth_token = query
+        .sig
+        .as_deref()
+        .or(query.token.as_deref())
+        .unwrap_or_default();
     let is_auth = Auth::is_authorized(
         &state.config.auth_token,
         "mute",
@@ -451,7 +476,10 @@ async fn handle_mute_ui(
     );
 
     if !is_auth {
-        return (StatusCode::UNAUTHORIZED, Html("<h2>⛔ Unauthorized Signature</h2>".to_string()));
+        return (
+            StatusCode::UNAUTHORIZED,
+            Html("<h2>⛔ Unauthorized Signature</h2>".to_string()),
+        );
     }
 
     if let Some(pid) = query.pid {
@@ -472,7 +500,10 @@ async fn handle_mute_ui(
             )),
         )
     } else {
-        (StatusCode::BAD_REQUEST, Html("<h2>Missing PID</h2>".to_string()))
+        (
+            StatusCode::BAD_REQUEST,
+            Html("<h2>Missing PID</h2>".to_string()),
+        )
     }
 }
 
@@ -480,7 +511,11 @@ async fn handle_whitelist_ui(
     Query(query): Query<ActionQuery>,
     State(state): State<AppState>,
 ) -> impl IntoResponse {
-    let auth_token = query.sig.as_deref().or(query.token.as_deref()).unwrap_or_default();
+    let auth_token = query
+        .sig
+        .as_deref()
+        .or(query.token.as_deref())
+        .unwrap_or_default();
     let is_auth = Auth::is_authorized(
         &state.config.auth_token,
         "whitelist",
@@ -491,7 +526,10 @@ async fn handle_whitelist_ui(
     );
 
     if !is_auth {
-        return (StatusCode::UNAUTHORIZED, Html("<h2>⛔ Unauthorized Signature</h2>".to_string()));
+        return (
+            StatusCode::UNAUTHORIZED,
+            Html("<h2>⛔ Unauthorized Signature</h2>".to_string()),
+        );
     }
 
     if let Some(name) = query.name {
@@ -511,7 +549,10 @@ async fn handle_whitelist_ui(
             )),
         )
     } else {
-        (StatusCode::BAD_REQUEST, Html("<h2>Missing Name</h2>".to_string()))
+        (
+            StatusCode::BAD_REQUEST,
+            Html("<h2>Missing Name</h2>".to_string()),
+        )
     }
 }
 
