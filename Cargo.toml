@@ -2,12 +2,12 @@
 name = "maniac-killer"
 version = "0.1.0"
 edition = "2021"
-authors = ["Cycorld <charles@cycorld.com>"]
+authors = ["Entropy Paradox Lab <contact@entropyparadox.com>"]
 description = "High-resource runaway process watchdog and remote executioner for macOS & Linux with AI agent immunity"
 readme = "README.md"
 license = "MIT OR Apache-2.0"
-repository = "https://github.com/cycorld/maniac-killer"
-homepage = "https://github.com/cycorld/maniac-killer"
+repository = "https://github.com/entropyparadox-lab/maniac-killer"
+homepage = "https://github.com/entropyparadox-lab/maniac-killer"
 keywords = ["watchdog", "process-manager", "ai-agent", "claude-code", "chatops"]
 categories = ["command-line-utilities", "development-tools::debugging", "system::monitoring"]
 

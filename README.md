@@ -1,7 +1,7 @@
 # 🩸 Maniac Killer (`maniac-killer`)
 
 [![Crates.io](https://img.shields.io/crates/v/maniac-killer.svg)](https://crates.io/crates/maniac-killer)
-[![CI](https://github.com/cycorld/maniac-killer/actions/workflows/ci.yml/badge.svg)](https://github.com/cycorld/maniac-killer/actions)
+[![CI](https://github.com/entropyparadox-lab/maniac-killer/actions/workflows/ci.yml/badge.svg)](https://github.com/entropyparadox-lab/maniac-killer/actions)
 [![License](https://img.shields.io/badge/license-MIT%20OR%20Apache--2.0-blue.svg)](LICENSE-MIT)
 [![Rust Version](https://img.shields.io/badge/rust-1.75%2B-orange.svg)](https://www.rust-lang.org)
 
@@ -62,11 +62,11 @@ cargo install maniac-killer
 
 #### Pre-built Binaries (GitHub Releases)
 ```bash
-# macOS Apple Silicon
-curl -fsSL https://github.com/cycorld/maniac-killer/releases/latest/download/maniac-killer-aarch64-apple-darwin.tar.gz | tar -xz && sudo mv maniac-killer /usr/local/bin/
+# Apple Silicon (M1/M2/M3/M4)
+curl -fsSL https://github.com/entropyparadox-lab/maniac-killer/releases/latest/download/maniac-killer-aarch64-apple-darwin.tar.gz | tar -xz && sudo mv maniac-killer /usr/local/bin/
 
 # Linux x86_64
-curl -fsSL https://github.com/cycorld/maniac-killer/releases/latest/download/maniac-killer-x86_64-unknown-linux-gnu.tar.gz | tar -xz && sudo mv maniac-killer /usr/local/bin/
+curl -fsSL https://github.com/entropyparadox-lab/maniac-killer/releases/latest/download/maniac-killer-x86_64-unknown-linux-gnu.tar.gz | tar -xz && sudo mv maniac-killer /usr/local/bin/
 ```
 
 ---
