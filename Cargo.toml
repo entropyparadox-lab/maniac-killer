@@ -1,0 +1,27 @@
+[package]
+name = "maniac-killer"
+version = "0.1.0"
+edition = "2021"
+authors = ["Cycorld <charles@cycorld.com>"]
+description = "High-resource runaway process watchdog and remote executioner for macOS & Linux with AI agent immunity"
+readme = "README.md"
+license = "MIT OR Apache-2.0"
+repository = "https://github.com/cycorld/maniac-killer"
+homepage = "https://github.com/cycorld/maniac-killer"
+keywords = ["watchdog", "process-manager", "ai-agent", "claude-code", "chatops"]
+categories = ["command-line-utilities", "development-tools::debugging", "system::monitoring"]
+
+[dependencies]
+tokio = { version = "1.43", features = ["full"] }
+sysinfo = "0.33"
+reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls"] }
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+toml = "0.8"
+clap = { version = "4.5", features = ["derive", "cargo"] }
+axum = "0.7"
+chrono = { version = "0.4", features = ["serde"] }
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+nix = { version = "0.29", features = ["signal", "process"] }
+rand = "0.8"
