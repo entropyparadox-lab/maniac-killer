@@ -2,7 +2,7 @@
 name = "maniac-killer"
 version = "0.1.0"
 edition = "2021"
-authors = ["Cycorld <contact@entropyparadox.com>"]
+authors = ["Entropy Paradox Lab <contact@entropyparadox.com>"]
 description = "High-resource runaway process watchdog and remote executioner for macOS & Linux with AI agent immunity"
 readme = "README.md"
 license = "MIT OR Apache-2.0"

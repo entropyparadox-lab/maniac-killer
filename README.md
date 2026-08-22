@@ -62,7 +62,7 @@ cargo install maniac-killer
 
 #### Pre-built Binaries (GitHub Releases)
 ```bash
-# macOS Apple Silicon
+# Apple Silicon (M1/M2/M3/M4)
 curl -fsSL https://github.com/entropyparadox-lab/maniac-killer/releases/latest/download/maniac-killer-aarch64-apple-darwin.tar.gz | tar -xz && sudo mv maniac-killer /usr/local/bin/
 
 # Linux x86_64
