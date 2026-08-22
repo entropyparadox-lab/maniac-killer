@@ -3,7 +3,7 @@ use crate::protection::Protection;
 use chrono::{DateTime, Duration, Local};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
-use sysinfo::System;
+use sysinfo::{Pid, System};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct TrackedProcess {
@@ -16,6 +16,7 @@ pub struct TrackedProcess {
     pub cpu_percent: f32,
     pub memory_mb: u64,
     pub cpu_streak: u32,
+    pub start_time: u64,
     pub first_detected: DateTime<Local>,
     pub alert_sent: bool,
     pub last_alert_time: Option<DateTime<Local>>,
@@ -38,6 +39,47 @@ impl Detector {
             tracked: HashMap::new(),
             whitelist,
         }
+    }
+
+    /// Check if a process is part of a legitimate active build pipeline (e.g. Xcode, Cargo, Clang)
+    fn is_build_compiler(&self, name: &str, cmdline: &str, ppid: Option<u32>) -> bool {
+        let name_lower = name.to_lowercase();
+        let cmd_lower = cmdline.to_lowercase();
+
+        let compiler_names = [
+            "rustc", "swiftc", "clang", "clang++", "cc1", "cc1plus", "tsc", "esbuild", "swc",
+            "javac", "kotlinc", "go", "ld", "ld64", "lld",
+        ];
+
+        let is_compiler = compiler_names
+            .iter()
+            .any(|&c| name_lower == c || name_lower.starts_with(c));
+        if !is_compiler {
+            return false;
+        }
+
+        // Check if parent process is a known build orchestration tool
+        if let Some(parent_pid) = ppid {
+            if let Some(parent_proc) = self.sys.process(Pid::from(parent_pid as usize)) {
+                let parent_name = parent_proc.name().to_string_lossy().to_lowercase();
+                let build_tools = [
+                    "cargo",
+                    "xcodebuild",
+                    "make",
+                    "ninja",
+                    "cmake",
+                    "gradle",
+                    "mvn",
+                    "swift-build",
+                ];
+                if build_tools.iter().any(|&b| parent_name.contains(b)) {
+                    return true;
+                }
+            }
+        }
+
+        // Also check command line context
+        cmd_lower.contains("xcodebuild") || cmd_lower.contains("cargo build")
     }
 
     pub fn scan(&mut self, config: &Config) -> Vec<TrackedProcess> {
@@ -66,8 +108,9 @@ impl Detector {
                 .user_id()
                 .map(|u| u.to_string())
                 .unwrap_or_else(|| "unknown".to_string());
+            let start_time = proc.start_time();
 
-            // 1. Skip if protected
+            // 1. Skip if immune or whitelisted
             if Protection::is_protected(pid_u32, &name, &cmdline_vec, &self.whitelist) {
                 continue;
             }
@@ -82,10 +125,20 @@ impl Detector {
                     user.clone(),
                     cpu,
                     mem_mb,
+                    start_time,
                 ),
             );
 
-            // Criteria 1: Sustained High CPU (e.g. Next.js watch loops / runaway tests / spinlocks)
+            // Compiler / Build Pipeline Intelligence
+            let is_compiler = self.is_build_compiler(&name, &cmdline, ppid);
+
+            // Criteria 1: Sustained High CPU (Build tools get higher streak threshold to prevent false positives)
+            let required_streak = if is_compiler {
+                config.cpu_streak.max(18) // 18 checks = ~3 mins of sustained max CPU for compilers
+            } else {
+                config.cpu_streak
+            };
+
             let is_high_cpu = cpu >= config.cpu_threshold;
 
             // Criteria 2: Orphaned background daemons with High Memory/CPU (PPID 1)
@@ -121,6 +174,7 @@ impl Detector {
                         cpu_percent: cpu,
                         memory_mb: mem_mb,
                         cpu_streak: 0,
+                        start_time,
                         first_detected: now,
                         alert_sent: false,
                         last_alert_time: None,
@@ -129,12 +183,14 @@ impl Detector {
                     }
                 });
 
+                // Update metrics
                 entry.cpu_percent = cpu;
                 entry.memory_mb = mem_mb;
                 entry.cpu_streak += 1;
+                entry.start_time = start_time;
 
                 // Determine if we should trigger an alert
-                let streak_met = entry.cpu_streak >= config.cpu_streak || is_orphan_daemon;
+                let streak_met = entry.cpu_streak >= required_streak || is_orphan_daemon;
                 let not_muted = entry.muted_until.map_or(true, |m| now > m);
                 let alert_cooldown_ok = entry
                     .last_alert_time
@@ -145,6 +201,11 @@ impl Detector {
                         format!("Orphan daemon (PPID 1, CPU {:.1}%, {}MB)", cpu, mem_mb)
                     } else if is_memory_hog {
                         format!("Memory hog ({}MB, CPU {:.1}%)", mem_mb, cpu)
+                    } else if is_compiler {
+                        format!(
+                            "Stuck Compiler loop (CPU {:.1}% sustained for {} checks)",
+                            cpu, entry.cpu_streak
+                        )
                     } else {
                         format!("CPU {:.1}% sustained for {} checks", cpu, entry.cpu_streak)
                     };
@@ -153,7 +214,7 @@ impl Detector {
                     suspects.push(entry.clone());
                 }
             } else {
-                // If CPU dropped below threshold and streak wasn't high, decay
+                // If CPU dropped below threshold, decay streak
                 if let Some(entry) = self.tracked.get_mut(&pid_u32) {
                     if entry.cpu_streak > 0 {
                         entry.cpu_streak -= 1;
@@ -163,7 +224,13 @@ impl Detector {
         }
 
         // Clean up dead processes from tracking
-        self.tracked.retain(|pid, _| current_pids.contains_key(pid));
+        self.tracked.retain(|pid, proc| {
+            if let Some((_, _, _, _, _, _, _, st)) = current_pids.get(pid) {
+                *st == proc.start_time
+            } else {
+                false
+            }
+        });
 
         suspects
     }

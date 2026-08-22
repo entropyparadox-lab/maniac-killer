@@ -3,6 +3,12 @@ use std::path::{Path, PathBuf};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Config {
+    /// Server/Node identifier (e.g. "ep-mac", "martian2", "cycorld-b650")
+    pub server_name: Option<String>,
+
+    /// SSH host alias for CLI kill hints in alert notifications (e.g. "ep-mac", "martian2", "m2")
+    pub ssh_host: Option<String>,
+
     /// Watchdog sampling interval in seconds (default: 10)
     #[serde(default = "default_check_interval_secs")]
     pub check_interval_secs: u64,
@@ -85,6 +91,8 @@ fn default_auth_token() -> String {
 impl Default for Config {
     fn default() -> Self {
         Self {
+            server_name: None,
+            ssh_host: None,
             check_interval_secs: default_check_interval_secs(),
             cpu_threshold: default_cpu_threshold(),
             cpu_streak: default_cpu_streak(),
@@ -104,6 +112,57 @@ impl Default for Config {
 }
 
 impl Config {
+    pub fn get_server_name(&self) -> String {
+        if let Some(name) = &self.server_name {
+            if !name.trim().is_empty() {
+                return name.trim().to_string();
+            }
+        }
+
+        let hostname = sysinfo::System::host_name().unwrap_or_else(|| {
+            std::env::var("HOSTNAME")
+                .or_else(|_| std::env::var("HOST"))
+                .unwrap_or_else(|_| "unknown-server".to_string())
+        });
+
+        let lower = hostname.to_lowercase();
+        if lower.contains("mac") || lower.contains("vodana") || lower.contains("bodanaui") {
+            "ep-mac".to_string()
+        } else if lower.contains("martian2") {
+            "martian2".to_string()
+        } else if lower.contains("livemixer") || lower.contains("cycorld-b650") {
+            "cycorld-b650".to_string()
+        } else {
+            hostname
+        }
+    }
+
+    pub fn get_ssh_host(&self) -> String {
+        if let Some(host) = &self.ssh_host {
+            if !host.trim().is_empty() {
+                return host.trim().to_string();
+            }
+        }
+        self.get_server_name()
+    }
+
+    pub fn get_base_url(&self) -> String {
+        if let Some(url) = &self.base_url {
+            if !url.trim().is_empty() {
+                return url.trim().trim_end_matches('/').to_string();
+            }
+        }
+
+        let s_name = self.get_server_name();
+        if s_name == "ep-mac" {
+            format!("http://ep-mac.tail1dcdac.ts.net:{}", self.http_port)
+        } else if s_name == "martian2" {
+            format!("http://martian2.tail1bb4bf.ts.net:{}", self.http_port)
+        } else {
+            format!("http://localhost:{}", self.http_port)
+        }
+    }
+
     pub fn load_or_default(custom_path: Option<&Path>) -> Self {
         let mut config = Self::default();
 
@@ -112,6 +171,7 @@ impl Config {
             None => vec![
                 PathBuf::from("maniac-killer.toml"),
                 dirs_home().join(".config/maniac-killer/config.toml"),
+                dirs_home().join("Documents/maniac-killer/maniac-killer.toml"),
                 PathBuf::from("/etc/maniac-killer/config.toml"),
             ],
         };
@@ -128,6 +188,12 @@ impl Config {
         }
 
         // Environment Variable Overrides
+        if let Ok(val) = std::env::var("MANIAC_SERVER_NAME") {
+            config.server_name = Some(val);
+        }
+        if let Ok(val) = std::env::var("MANIAC_SSH_HOST") {
+            config.ssh_host = Some(val);
+        }
         if let Ok(val) = std::env::var("MANIAC_CHECK_INTERVAL") {
             if let Ok(parsed) = val.parse::<u64>() {
                 config.check_interval_secs = parsed;
@@ -163,12 +229,20 @@ impl Config {
             config.base_url = Some(val);
         }
 
-        // Slack
+        // Auto-discover Slack tokens from environment or known EP paths if not set
         if config.slack_bot_token.is_none() {
             if let Ok(tok) = std::env::var("MANIAC_SLACK_BOT_TOKEN")
                 .or_else(|_| std::env::var("SLACK_BOT_TOKEN"))
             {
                 config.slack_bot_token = Some(tok);
+            } else {
+                let ep_env = dirs_home().join("Documents/ep-erp-prod/.env.local");
+                if let Some((tok, chan)) = parse_env_file(&ep_env) {
+                    config.slack_bot_token = Some(tok);
+                    if config.slack_channel.is_none() {
+                        config.slack_channel = Some(chan);
+                    }
+                }
             }
         }
         if config.slack_channel.is_none() {
@@ -212,4 +286,25 @@ fn dirs_home() -> PathBuf {
     std::env::var("HOME")
         .map(PathBuf::from)
         .unwrap_or_else(|_| PathBuf::from("."))
+}
+
+fn parse_env_file(path: &Path) -> Option<(String, String)> {
+    let content = std::fs::read_to_string(path).ok()?;
+    let mut token = None;
+    let mut channel = None;
+    for line in content.lines() {
+        let line = line.trim();
+        if let Some(val) = line.strip_prefix("SLACK_BOT_TOKEN=") {
+            let clean = val.trim_matches(|c| c == '"' || c == '\'').to_string();
+            token = Some(clean);
+        } else if let Some(val) = line.strip_prefix("SLACK_ALERT_CHANNEL=") {
+            let clean = val.trim_matches(|c| c == '"' || c == '\'').to_string();
+            channel = Some(clean);
+        }
+    }
+    if let (Some(t), Some(c)) = (token, channel) {
+        Some((t, c))
+    } else {
+        None
+    }
 }
