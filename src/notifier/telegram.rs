@@ -1,7 +1,9 @@
+use crate::auth::Auth;
 use crate::config::Config;
 use crate::detector::TrackedProcess;
 use crate::killer::KillResult;
 use crate::notifier::urlencode;
+use chrono::Utc;
 use reqwest::Client;
 use serde_json::json;
 
@@ -22,17 +24,29 @@ impl TelegramNotifier {
             _ => return Err("Telegram Chat ID not configured".to_string()),
         };
 
+        let server_name = config.get_server_name();
+        let now_ts = Utc::now().timestamp();
         let client = Client::new();
 
-        let confirm_kill_url = format!(
-            "{}/confirm-kill?pid={}&st={}&token={}",
-            base_url, proc.pid, proc.start_time, config.auth_token
+        let kill_sig = Auth::sign_action(&config.auth_token, "kill", proc.pid, proc.start_time, now_ts);
+        let kill_url = format!(
+            "{}/confirm-kill?pid={}&st={}&ts={}&sig={}",
+            base_url, proc.pid, proc.start_time, now_ts, kill_sig
         );
+
+        let mute_sig = Auth::sign_action(&config.auth_token, "mute", proc.pid, proc.start_time, now_ts);
+        let mute_url = format!(
+            "{}/mute?pid={}&st={}&ts={}&sig={}&hours=1",
+            base_url, proc.pid, proc.start_time, now_ts, mute_sig
+        );
+
+        let wl_sig = Auth::sign_action(&config.auth_token, "whitelist", proc.pid, proc.start_time, now_ts);
         let wl_url = format!(
-            "{}/whitelist?name={}&token={}",
+            "{}/whitelist?name={}&ts={}&sig={}",
             base_url,
             urlencode(&proc.name),
-            config.auth_token
+            now_ts,
+            wl_sig
         );
 
         let cmd_short = if proc.cmdline.len() > 140 {
@@ -42,13 +56,16 @@ impl TelegramNotifier {
         };
 
         let text = format!(
-            "🚨 *[MANIAC KILLER] Runaway Process Alert*\n\n\
+            "🚨 *[MANIAC KILLER — {}] Runaway Process Alert*\n\n\
+            • *Server:* `{}`\n\
             • *Process:* `{}` (PID `{}`)\n\
             • *CPU:* *`{:.1}%`* (streak {})\n\
             • *Memory:* *`{} MB`*\n\
             • *Reason:* {}\n\
             • *CWD:* `{}`\n\
             • *Command:* `{}`",
+            server_name,
+            server_name,
             proc.name,
             proc.pid,
             proc.cpu_percent,
@@ -70,8 +87,9 @@ impl TelegramNotifier {
             "reply_markup": {
                 "inline_keyboard": [
                     [
-                        { "text": "🩸 KILL NOW", "url": confirm_kill_url },
-                        { "text": "🛡️ Whitelist", "url": wl_url }
+                        { "text": "🩸 KILL NOW", "url": kill_url },
+                        { "text": "🛡️ Whitelist", "url": wl_url },
+                        { "text": "⏳ Mute 1h", "url": mute_url }
                     ]
                 ]
             }
@@ -102,20 +120,15 @@ impl TelegramNotifier {
             _ => return Err("Telegram Chat ID not configured".to_string()),
         };
 
+        let server_name = config.get_server_name();
         let client = Client::new();
         let text = format!(
-            "🩸 *[MANIAC KILLER] Execution Report*\n\n\
+            "🩸 *[MANIAC KILLER — {}] Execution Report*\n\n\
             • *PID:* `{}` ({})\n\
             • *Status:* {}\n\
             • *Freed Memory:* `{} MB`\n\
-            • *Terminated PIDs:* `{:?}`\n\
             • *Command:* `{}`",
-            result.pid,
-            result.name,
-            result.message,
-            result.memory_freed_mb,
-            result.killed_pids,
-            result.cmdline
+            server_name, result.pid, result.name, result.message, result.memory_freed_mb, result.cmdline
         );
 
         let payload = json!({

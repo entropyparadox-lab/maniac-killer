@@ -1,3 +1,4 @@
+use crate::auth::{escape_html, Auth};
 use crate::config::Config;
 use crate::detector::Detector;
 use crate::killer::Executioner;
@@ -9,6 +10,7 @@ use axum::{
     routing::{get, post},
     Router,
 };
+use chrono::Utc;
 use serde::{Deserialize, Serialize};
 use serde_json::json;
 use std::sync::Arc;
@@ -21,22 +23,29 @@ pub struct AppState {
 }
 
 #[derive(Deserialize)]
-pub struct ConfirmKillQuery {
+pub struct ActionQuery {
     pub pid: Option<u32>,
     pub st: Option<u64>,
-    pub token: String,
+    pub ts: Option<i64>,
+    pub sig: Option<String>,
+    pub token: Option<String>,
+    pub name: Option<String>,
+    pub hours: Option<i64>,
 }
 
 #[derive(Deserialize, Serialize)]
 pub struct KillPayload {
     pub pid: u32,
     pub start_time: Option<u64>,
+    pub timestamp: Option<i64>,
     pub token: String,
 }
 
 #[derive(Deserialize, Serialize)]
 pub struct MutePayload {
     pub pid: u32,
+    pub start_time: Option<u64>,
+    pub timestamp: Option<i64>,
     pub hours: Option<i64>,
     pub token: String,
 }
@@ -44,6 +53,7 @@ pub struct MutePayload {
 #[derive(Deserialize, Serialize)]
 pub struct WhitelistPayload {
     pub name: String,
+    pub timestamp: Option<i64>,
     pub token: String,
 }
 
@@ -53,6 +63,8 @@ pub fn create_router(state: AppState) -> Router {
         .route("/health", get(handle_health))
         .route("/kill", get(handle_confirm_kill_ui))
         .route("/confirm-kill", get(handle_confirm_kill_ui))
+        .route("/mute", get(handle_mute_ui))
+        .route("/whitelist", get(handle_whitelist_ui))
         .route("/api/kill", post(handle_api_kill))
         .route("/api/mute", post(handle_api_mute))
         .route("/api/whitelist", post(handle_api_whitelist))
@@ -61,13 +73,17 @@ pub fn create_router(state: AppState) -> Router {
 }
 
 async fn handle_health() -> &'static str {
-    "OK (Maniac Killer Online)"
+    "OK (Maniac Killer Watchdog Online)"
 }
 
 async fn handle_dashboard(State(state): State<AppState>) -> Html<String> {
     let detector = state.detector.lock().await;
     let mut rows = String::new();
+    let server_name = state.config.get_server_name();
+    let now_ts = Utc::now().timestamp();
+
     for proc in detector.tracked.values() {
+        let sig = Auth::sign_action(&state.config.auth_token, "kill", proc.pid, proc.start_time, now_ts);
         rows.push_str(&format!(
             "<tr>
                 <td><b>{}</b></td>
@@ -77,10 +93,20 @@ async fn handle_dashboard(State(state): State<AppState>) -> Html<String> {
                 <td>{}</td>
                 <td><small><code>{}</code></small></td>
                 <td>
-                    <a href='/confirm-kill?pid={}&st={}&token={}' style='background:#ff5555;color:#fff;padding:6px 12px;text-decoration:none;border-radius:6px;font-weight:bold;display:inline-block;'>🩸 KILL</a>
+                    <a href='/confirm-kill?pid={}&st={}&ts={}&sig={}' style='background:#ff5555;color:#fff;padding:6px 12px;text-decoration:none;border-radius:6px;font-weight:bold;display:inline-block;'>🩸 KILL</a>
                 </td>
             </tr>",
-            proc.pid, proc.name, proc.cpu_percent, proc.cpu_streak, proc.memory_mb, proc.reason, proc.cwd, proc.pid, proc.start_time, state.config.auth_token
+            proc.pid,
+            escape_html(&proc.name),
+            proc.cpu_percent,
+            proc.cpu_streak,
+            proc.memory_mb,
+            escape_html(&proc.reason),
+            escape_html(&proc.cwd),
+            proc.pid,
+            proc.start_time,
+            now_ts,
+            sig
         ));
     }
 
@@ -94,7 +120,7 @@ async fn handle_dashboard(State(state): State<AppState>) -> Html<String> {
 <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
-    <title>🔪 MANIAC KILLER — System Control Center</title>
+    <title>🔪 MANIAC KILLER — {} Control Center</title>
     <style>
         :root {{
             --bg: #0d1117;
@@ -142,6 +168,14 @@ async fn handle_dashboard(State(state): State<AppState>) -> Html<String> {
             font-size: 12px;
             font-weight: bold;
         }}
+        .server-badge {{
+            background: #1f6feb;
+            color: #fff;
+            padding: 4px 10px;
+            border-radius: 6px;
+            font-size: 13px;
+            font-weight: bold;
+        }}
         table {{
             width: 100%;
             border-collapse: collapse;
@@ -183,9 +217,12 @@ async fn handle_dashboard(State(state): State<AppState>) -> Html<String> {
     <div class="container">
         <header>
             <h1>🩸 MANIAC KILLER <span class="badge">ONLINE</span></h1>
-            <div style="font-size: 13px; color: #8b949e;">Threshold: <b>{:.0}% CPU</b> (Streak: {})</div>
+            <div style="font-size: 13px; color: #8b949e; display: flex; align-items: center; gap: 10px;">
+                <span class="server-badge">Host: {}</span>
+                <span>Threshold: <b>{:.0}% CPU</b> (Streak: {})</span>
+            </div>
         </header>
-        <p style="margin-top: 0; color: #8b949e;">AI-Agent-Aware process watchdog and remote executioner.</p>
+        <p style="margin-top: 0; color: #8b949e;">Runaway process watchdog and remote executioner for <b>{}</b> with native AI agent immunity.</p>
         <table>
             <thead>
                 <tr>
@@ -203,12 +240,17 @@ async fn handle_dashboard(State(state): State<AppState>) -> Html<String> {
             </tbody>
         </table>
         <div class="footer">
-            <p>🛡️ <b>Immunity Guarantee:</b> Active Claude Code sessions, AI developer tools, and critical system/kernel daemons are strictly protected.</p>
+            <p>🛡️ <b>Immunity Guarantee:</b> Active Claude Code sessions, AI developer tools, and critical system/kernel daemons are strictly protected by built-in immune rules.</p>
         </div>
     </div>
 </body>
 </html>"#,
-        state.config.cpu_threshold, state.config.cpu_streak, rows
+        escape_html(&server_name),
+        escape_html(&server_name),
+        state.config.cpu_threshold,
+        state.config.cpu_streak,
+        escape_html(&server_name),
+        rows
     );
 
     Html(html)
@@ -216,19 +258,33 @@ async fn handle_dashboard(State(state): State<AppState>) -> Html<String> {
 
 /// Renders a secure Confirmation UI before triggering POST execution (Prevents Link Prefetch accidental kills)
 async fn handle_confirm_kill_ui(
-    Query(query): Query<ConfirmKillQuery>,
+    Query(query): Query<ActionQuery>,
     State(state): State<AppState>,
 ) -> impl IntoResponse {
-    if query.token != state.config.auth_token {
-        return Html("<div style='font-family:sans-serif;margin:60px auto;max-width:500px;background:#161b22;padding:30px;border-radius:8px;color:#ff7b72;'><h2>⛔ Unauthorized</h2><p>Invalid authentication token.</p></div>".to_string());
+    let auth_token = query.sig.as_deref().or(query.token.as_deref()).unwrap_or_default();
+    let is_auth = Auth::is_authorized(
+        &state.config.auth_token,
+        "kill",
+        query.pid,
+        query.st,
+        query.ts,
+        auth_token,
+    );
+
+    if !is_auth {
+        return (
+            StatusCode::UNAUTHORIZED,
+            Html("<div style='font-family:sans-serif;margin:60px auto;max-width:500px;background:#161b22;padding:30px;border-radius:8px;color:#ff7b72;border:1px solid #ff7b72;'><h2>⛔ Unauthorized</h2><p>Invalid or expired authentication signature / token.</p></div>".to_string())
+        );
     }
 
     let pid = match query.pid {
         Some(p) => p,
-        None => return Html("<h2>Missing PID parameter</h2>".to_string()),
+        None => return (StatusCode::BAD_REQUEST, Html("<h2>Missing PID parameter</h2>".to_string())),
     };
 
     let st = query.st.unwrap_or(0);
+    let ts = query.ts.unwrap_or(0);
 
     let html = format!(
         r#"<!DOCTYPE html>
@@ -290,12 +346,14 @@ async fn handle_confirm_kill_ui(
         <div class="info-box">
             • <b>Target PID:</b> <code>{}</code><br>
             • <b>Process Start Time:</b> <code>{}</code><br>
-            • <b>Method:</b> Recursive Tree-Kill (SIGTERM ➡️ SIGKILL)
+            • <b>Method:</b> Recursive Tree-Kill (SIGTERM ➡️ SIGKILL)<br>
+            • <b>Security:</b> HMAC-SHA256 Signed Execution
         </div>
 
         <form method="POST" action="/api/kill">
             <input type="hidden" name="pid" value="{}">
             <input type="hidden" name="start_time" value="{}">
+            <input type="hidden" name="timestamp" value="{}">
             <input type="hidden" name="token" value="{}">
             <button type="submit" class="btn-kill">🩸 EXECUTE & TERMINATE TREE</button>
         </form>
@@ -306,10 +364,10 @@ async fn handle_confirm_kill_ui(
     </div>
 </body>
 </html>"#,
-        pid, pid, st, pid, st, state.config.auth_token
+        pid, pid, st, pid, st, ts, escape_html(auth_token)
     );
 
-    Html(html)
+    (StatusCode::OK, Html(html))
 }
 
 /// Secure POST API for Process Termination with TOCTOU + Agent Immunity verification
@@ -317,10 +375,19 @@ async fn handle_api_kill(
     State(state): State<AppState>,
     axum::extract::Form(payload): axum::extract::Form<KillPayload>,
 ) -> impl IntoResponse {
-    if payload.token != state.config.auth_token {
+    let is_auth = Auth::is_authorized(
+        &state.config.auth_token,
+        "kill",
+        Some(payload.pid),
+        payload.start_time,
+        payload.timestamp,
+        &payload.token,
+    );
+
+    if !is_auth {
         return (
             StatusCode::UNAUTHORIZED,
-            Html("<h2>⛔ Unauthorized Token</h2>".to_string()),
+            Html("<h2>⛔ Unauthorized: Invalid or expired execution token</h2>".to_string()),
         );
     }
 
@@ -345,9 +412,9 @@ async fn handle_api_kill(
                         <hr style="border:0;border-top:1px solid #30363d;margin:20px 0;">
                         <a href="/" style="color:#8be9fd;text-decoration:none;font-weight:bold;">⬅️ Return to Dashboard</a>
                     </div></body></html>"#,
-                    result.name,
+                    escape_html(&result.name),
                     result.pid,
-                    result.message,
+                    escape_html(&result.message),
                     result.memory_freed_mb,
                     result.killed_pids
                 )),
@@ -363,9 +430,88 @@ async fn handle_api_kill(
                     <hr style="border:0;border-top:1px solid #30363d;margin:20px 0;">
                     <a href="/" style="color:#8be9fd;text-decoration:none;font-weight:bold;">⬅️ Return to Dashboard</a>
                 </div></body></html>"#,
-                err
+                escape_html(&err)
             )),
         ),
+    }
+}
+
+async fn handle_mute_ui(
+    Query(query): Query<ActionQuery>,
+    State(state): State<AppState>,
+) -> impl IntoResponse {
+    let auth_token = query.sig.as_deref().or(query.token.as_deref()).unwrap_or_default();
+    let is_auth = Auth::is_authorized(
+        &state.config.auth_token,
+        "mute",
+        query.pid,
+        query.st,
+        query.ts,
+        auth_token,
+    );
+
+    if !is_auth {
+        return (StatusCode::UNAUTHORIZED, Html("<h2>⛔ Unauthorized Signature</h2>".to_string()));
+    }
+
+    if let Some(pid) = query.pid {
+        let hours = query.hours.unwrap_or(1);
+        let mut detector = state.detector.lock().await;
+        detector.mute(pid, hours);
+        (
+            StatusCode::OK,
+            Html(format!(
+                r#"<!DOCTYPE html><html><body style="font-family:sans-serif;background:#0d1117;color:#c9d1d9;padding:60px 20px;display:flex;justify-content:center;">
+                <div style="max-width:500px;width:100%;background:#161b22;padding:30px;border-radius:10px;border:1px solid #30363d;">
+                    <h2 style="color:#f0f6fc;margin-top:0;">⏳ Muted for {} hour(s)</h2>
+                    <p>Alerts for PID <b>{}</b> have been silenced.</p>
+                    <hr style="border:0;border-top:1px solid #30363d;margin:20px 0;">
+                    <a href="/" style="color:#8be9fd;text-decoration:none;font-weight:bold;">⬅️ Return to Dashboard</a>
+                </div></body></html>"#,
+                hours, pid
+            )),
+        )
+    } else {
+        (StatusCode::BAD_REQUEST, Html("<h2>Missing PID</h2>".to_string()))
+    }
+}
+
+async fn handle_whitelist_ui(
+    Query(query): Query<ActionQuery>,
+    State(state): State<AppState>,
+) -> impl IntoResponse {
+    let auth_token = query.sig.as_deref().or(query.token.as_deref()).unwrap_or_default();
+    let is_auth = Auth::is_authorized(
+        &state.config.auth_token,
+        "whitelist",
+        query.pid,
+        query.st,
+        query.ts,
+        auth_token,
+    );
+
+    if !is_auth {
+        return (StatusCode::UNAUTHORIZED, Html("<h2>⛔ Unauthorized Signature</h2>".to_string()));
+    }
+
+    if let Some(name) = query.name {
+        let mut detector = state.detector.lock().await;
+        detector.add_whitelist(name.clone());
+        (
+            StatusCode::OK,
+            Html(format!(
+                r#"<!DOCTYPE html><html><body style="font-family:sans-serif;background:#0d1117;color:#c9d1d9;padding:60px 20px;display:flex;justify-content:center;">
+                <div style="max-width:500px;width:100%;background:#161b22;padding:30px;border-radius:10px;border:1px solid #30363d;">
+                    <h2 style="color:#50fa7b;margin-top:0;">🛡️ Added to Whitelist</h2>
+                    <p>Keyword <code>{}</code> is now permanently immune during this session.</p>
+                    <hr style="border:0;border-top:1px solid #30363d;margin:20px 0;">
+                    <a href="/" style="color:#8be9fd;text-decoration:none;font-weight:bold;">⬅️ Return to Dashboard</a>
+                </div></body></html>"#,
+                escape_html(&name)
+            )),
+        )
+    } else {
+        (StatusCode::BAD_REQUEST, Html("<h2>Missing Name</h2>".to_string()))
     }
 }
 
@@ -373,7 +519,16 @@ async fn handle_api_mute(
     State(state): State<AppState>,
     Json(payload): Json<MutePayload>,
 ) -> impl IntoResponse {
-    if payload.token != state.config.auth_token {
+    let is_auth = Auth::is_authorized(
+        &state.config.auth_token,
+        "mute",
+        Some(payload.pid),
+        payload.start_time,
+        payload.timestamp,
+        &payload.token,
+    );
+
+    if !is_auth {
         return (
             StatusCode::UNAUTHORIZED,
             Json(json!({"error": "unauthorized"})),
@@ -393,7 +548,16 @@ async fn handle_api_whitelist(
     State(state): State<AppState>,
     Json(payload): Json<WhitelistPayload>,
 ) -> impl IntoResponse {
-    if payload.token != state.config.auth_token {
+    let is_auth = Auth::is_authorized(
+        &state.config.auth_token,
+        "whitelist",
+        None,
+        None,
+        payload.timestamp,
+        &payload.token,
+    );
+
+    if !is_auth {
         return (
             StatusCode::UNAUTHORIZED,
             Json(json!({"error": "unauthorized"})),
@@ -411,7 +575,9 @@ async fn handle_api_whitelist(
 async fn handle_status_api(State(state): State<AppState>) -> Json<serde_json::Value> {
     let detector = state.detector.lock().await;
     let list: Vec<_> = detector.tracked.values().cloned().collect();
+    let server_name = state.config.get_server_name();
     Json(json!({
+        "server_name": server_name,
         "tracked_count": list.len(),
         "processes": list
     }))

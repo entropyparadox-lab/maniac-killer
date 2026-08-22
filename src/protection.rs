@@ -1,3 +1,5 @@
+use sysinfo::Process;
+
 pub struct Protection;
 
 impl Protection {
@@ -71,6 +73,7 @@ impl Protection {
         "wireguard",
     ];
 
+    /// Core immunity verification: checks PID, binary name, commandline arguments, exe path, and custom whitelist
     pub fn is_protected(
         pid: u32,
         name: &str,
@@ -85,17 +88,24 @@ impl Protection {
         let name_lower = name.to_lowercase();
         let cmd_lower = cmdline.join(" ").to_lowercase();
 
-        // 1. First-class AI Agent Immunity Check
+        // 1. First-class AI Agent Immunity Check (Strict protection for Claude, Hermes, Serena)
         if name_lower.contains("claude")
-            || cmd_lower.contains("claude --")
+            || cmd_lower.contains("claude ")
+            || cmd_lower.contains("claude--")
+            || cmd_lower.contains(".claude")
             || name_lower.contains("hermes")
+            || cmd_lower.contains("hermes ")
+            || name_lower.contains("serena")
         {
             return true;
         }
 
-        // 2. Built-in Immune list
+        // 2. Built-in Immune keyword check across name & cmdline
         for &kw in Self::IMMUNE_KEYWORDS {
-            if name_lower.contains(kw) || cmd_lower.contains(kw) {
+            if name_lower == kw
+                || name_lower.contains(kw)
+                || cmd_lower.contains(kw)
+            {
                 return true;
             }
         }
@@ -103,12 +113,50 @@ impl Protection {
         // 3. User-defined Custom Whitelist
         for kw in custom_whitelist {
             let kw_lower = kw.to_lowercase();
-            if name_lower.contains(&kw_lower) || cmd_lower.contains(&kw_lower) {
+            if name_lower == kw_lower
+                || name_lower.contains(&kw_lower)
+                || cmd_lower.contains(&kw_lower)
+            {
                 return true;
             }
         }
 
         false
+    }
+
+    /// Process-level deep inspection including binary path (exe)
+    pub fn is_process_protected(
+        pid: u32,
+        proc: &Process,
+        custom_whitelist: &[String],
+    ) -> bool {
+        if pid <= 100 {
+            return true;
+        }
+
+        let name = proc.name().to_string_lossy();
+        let cmdline_vec: Vec<String> = proc
+            .cmd()
+            .iter()
+            .map(|s| s.to_string_lossy().to_string())
+            .collect();
+
+        // Check exe path for system daemons and AI tools
+        if let Some(exe) = proc.exe() {
+            let exe_str = exe.to_string_lossy().to_lowercase();
+            if exe_str.contains("/.claude/")
+                || exe_str.contains("/claude")
+                || exe_str.contains("/.hermes/")
+                || exe_str.contains("/hermes")
+                || exe_str.starts_with("/system/library")
+                || exe_str.starts_with("/usr/libexec")
+                || exe_str.starts_with("/lib/systemd")
+            {
+                return true;
+            }
+        }
+
+        Self::is_protected(pid, &name, &cmdline_vec, custom_whitelist)
     }
 }
 

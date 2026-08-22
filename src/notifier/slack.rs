@@ -1,7 +1,9 @@
+use crate::auth::Auth;
 use crate::config::Config;
 use crate::detector::TrackedProcess;
 use crate::killer::KillResult;
 use crate::notifier::urlencode;
+use chrono::Utc;
 use reqwest::Client;
 use serde_json::json;
 
@@ -22,17 +24,32 @@ impl SlackNotifier {
             _ => return Err("Slack Channel not configured".to_string()),
         };
 
+        let server_name = config.get_server_name();
+        let ssh_host = config.get_ssh_host();
+        let now_ts = Utc::now().timestamp();
+
         let client = Client::new();
 
-        let confirm_kill_url = format!(
-            "{}/confirm-kill?pid={}&st={}&token={}",
-            base_url, proc.pid, proc.start_time, config.auth_token
+        // Generate HMAC-SHA256 Expiring Action Signatures (Valid for 15 mins)
+        let kill_sig = Auth::sign_action(&config.auth_token, "kill", proc.pid, proc.start_time, now_ts);
+        let kill_url = format!(
+            "{}/confirm-kill?pid={}&st={}&ts={}&sig={}",
+            base_url, proc.pid, proc.start_time, now_ts, kill_sig
         );
+
+        let mute_sig = Auth::sign_action(&config.auth_token, "mute", proc.pid, proc.start_time, now_ts);
+        let mute_url = format!(
+            "{}/mute?pid={}&st={}&ts={}&sig={}&hours=1",
+            base_url, proc.pid, proc.start_time, now_ts, mute_sig
+        );
+
+        let wl_sig = Auth::sign_action(&config.auth_token, "whitelist", proc.pid, proc.start_time, now_ts);
         let wl_url = format!(
-            "{}/whitelist?name={}&token={}",
+            "{}/whitelist?name={}&ts={}&sig={}",
             base_url,
             urlencode(&proc.name),
-            config.auth_token
+            now_ts,
+            wl_sig
         );
 
         let cmd_short = if proc.cmdline.len() > 180 {
@@ -41,11 +58,8 @@ impl SlackNotifier {
             proc.cmdline.clone()
         };
 
-        let server_name = config.get_server_name();
-        let ssh_host = config.get_ssh_host();
-
         let fallback_text = format!(
-            "🚨 [MANIAC KILLER] Runaway Process on {}: {} (PID: {}, CPU: {:.1}%, MEM: {}MB)",
+            "🚨 [MANIAC KILLER — {}] 폭주 프로세스 감지: {} (PID: {}, CPU: {:.1}%, MEM: {}MB)",
             server_name, proc.name, proc.pid, proc.cpu_percent, proc.memory_mb
         );
 
@@ -63,19 +77,23 @@ impl SlackNotifier {
                 "fields": [
                     {
                         "type": "mrkdwn",
-                        "text": format!("*Process:* `{}` (PID: `{}`)", proc.name, proc.pid)
+                        "text": format!("*서버/장비:* `{}`", server_name)
                     },
                     {
                         "type": "mrkdwn",
-                        "text": format!("*CPU Usage:* *`{:.1}%`* (streak: {})", proc.cpu_percent, proc.cpu_streak)
+                        "text": format!("*프로세스:* `{}` (PID: `{}`)", proc.name, proc.pid)
                     },
                     {
                         "type": "mrkdwn",
-                        "text": format!("*Memory RSS:* *`{} MB`*", proc.memory_mb)
+                        "text": format!("*CPU 점유율:* *`{:.1}%`* (연속 {}회)", proc.cpu_percent, proc.cpu_streak)
                     },
                     {
                         "type": "mrkdwn",
-                        "text": format!("*Reason:* {}", proc.reason)
+                        "text": format!("*메모리 점유:* *`{} MB`*", proc.memory_mb)
+                    },
+                    {
+                        "type": "mrkdwn",
+                        "text": format!("*사유:* {}", proc.reason)
                     }
                 ]
             },
@@ -83,7 +101,7 @@ impl SlackNotifier {
                 "type": "section",
                 "text": {
                     "type": "mrkdwn",
-                    "text": format!("*📁 Working Dir:* `{}`\n*💻 Command:* `{}`", if proc.cwd.is_empty() { "N/A" } else { &proc.cwd }, cmd_short)
+                    "text": format!("*📁 작업 경로:* `{}`\n*💻 실행 명령:* `{}`", if proc.cwd.is_empty() { "N/A" } else { &proc.cwd }, cmd_short)
                 }
             },
             {
@@ -93,20 +111,29 @@ impl SlackNotifier {
                         "type": "button",
                         "text": {
                             "type": "plain_text",
-                            "text": "🩸 KILL NOW",
+                            "text": "🩸 즉시 사살 (KILL)",
                             "emoji": true
                         },
                         "style": "danger",
-                        "url": confirm_kill_url
+                        "url": kill_url
                     },
                     {
                         "type": "button",
                         "text": {
                             "type": "plain_text",
-                            "text": "🛡️ Whitelist",
+                            "text": "🛡️ 화이트리스트 등록",
                             "emoji": true
                         },
                         "url": wl_url
+                    },
+                    {
+                        "type": "button",
+                        "text": {
+                            "type": "plain_text",
+                            "text": "⏳ 1시간 침묵",
+                            "emoji": true
+                        },
+                        "url": mute_url
                     }
                 ]
             },
@@ -115,7 +142,7 @@ impl SlackNotifier {
                 "elements": [
                     {
                         "type": "mrkdwn",
-                        "text": format!("⚡ CLI Quick Kill: `ssh {} \"maniac-killer kill {}\"` | AI Coding & System Daemons are strictly protected.", ssh_host, proc.pid)
+                        "text": format!("⚡ CLI 수동 사살: `ssh {} \"maniac-killer kill {}\"` | Claude CLI 세션 및 핵심 데몬은 절대 보호됩니다.", ssh_host, proc.pid)
                     }
                 ]
             }
@@ -168,10 +195,11 @@ impl SlackNotifier {
             _ => return Err("Slack Channel not configured".to_string()),
         };
 
+        let server_name = config.get_server_name();
         let client = Client::new();
         let text = format!(
-            "🩸 *[MANIAC KILLER] Execution Report*\n• *PID:* `{}` ({})\n• *Status:* {}\n• *Freed Memory:* `{} MB`\n• *Terminated Tree PIDs:* `{:?}`\n• *Command:* `{}`",
-            result.pid, result.name, result.message, result.memory_freed_mb, result.killed_pids, result.cmdline
+            "🩸 *[MANIAC KILLER — {}] 사살 보고서*\n• *PID:* `{}` ({})\n• *결과:* {}\n• *회수 메모리:* `{} MB`\n• *명령어:* `{}`",
+            server_name, result.pid, result.name, result.message, result.memory_freed_mb, result.cmdline
         );
 
         let payload = json!({

@@ -41,22 +41,20 @@ impl Detector {
         }
     }
 
-    /// Check if a process is part of a legitimate active build pipeline (e.g. Xcode, Cargo, Clang)
+    /// Check if a process is part of a legitimate active build pipeline (e.g. Xcode, Cargo, Clang, Next.js build, Webpack)
     fn is_build_compiler(&self, name: &str, cmdline: &str, ppid: Option<u32>) -> bool {
         let name_lower = name.to_lowercase();
         let cmd_lower = cmdline.to_lowercase();
 
         let compiler_names = [
             "rustc", "swiftc", "clang", "clang++", "cc1", "cc1plus", "tsc", "esbuild", "swc",
+            "next-server", "webpack", "rollup", "vite", "turbo", "turbopack",
             "javac", "kotlinc", "go", "ld", "ld64", "lld",
         ];
 
         let is_compiler = compiler_names
             .iter()
             .any(|&c| name_lower == c || name_lower.starts_with(c));
-        if !is_compiler {
-            return false;
-        }
 
         // Check if parent process is a known build orchestration tool
         if let Some(parent_pid) = ppid {
@@ -71,6 +69,12 @@ impl Detector {
                     "gradle",
                     "mvn",
                     "swift-build",
+                    "pnpm",
+                    "npm",
+                    "yarn",
+                    "bun",
+                    "docker",
+                    "podman",
                 ];
                 if build_tools.iter().any(|&b| parent_name.contains(b)) {
                     return true;
@@ -79,7 +83,17 @@ impl Detector {
         }
 
         // Also check command line context
-        cmd_lower.contains("xcodebuild") || cmd_lower.contains("cargo build")
+        if cmd_lower.contains("xcodebuild")
+            || cmd_lower.contains("cargo build")
+            || cmd_lower.contains("pnpm build")
+            || cmd_lower.contains("npm run build")
+            || cmd_lower.contains("next build")
+            || cmd_lower.contains("docker build")
+        {
+            return true;
+        }
+
+        is_compiler
     }
 
     pub fn scan(&mut self, config: &Config) -> Vec<TrackedProcess> {
@@ -110,8 +124,8 @@ impl Detector {
                 .unwrap_or_else(|| "unknown".to_string());
             let start_time = proc.start_time();
 
-            // 1. Skip if immune or whitelisted
-            if Protection::is_protected(pid_u32, &name, &cmdline_vec, &self.whitelist) {
+            // 1. Skip if immune or whitelisted (using deep inspection)
+            if Protection::is_process_protected(pid_u32, proc, &self.whitelist) {
                 continue;
             }
 

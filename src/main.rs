@@ -1,3 +1,4 @@
+mod auth;
 mod config;
 mod detector;
 mod killer;
@@ -90,18 +91,23 @@ async fn main() {
             println!("✨ Initialized template configuration file at: {:?}", path);
         }
         Commands::Scan => {
-            println!("🔍 [MANIAC KILLER] Scanning for runaway & orphaned processes...");
+            let server_name = config.get_server_name();
+            println!(
+                "🔍 [MANIAC KILLER] Scanning for runaway & orphaned processes on {}...",
+                server_name
+            );
             let mut detector = Detector::new(config.custom_whitelist.clone());
             let suspects = detector.scan(&config);
 
             if suspects.is_empty() {
                 println!(
-                    "✨ No runaway processes found exceeding CPU {:.0}% or orphan criteria.",
-                    config.cpu_threshold
+                    "✨ [{}] No runaway processes found exceeding CPU {:.0}% or orphan criteria.",
+                    server_name, config.cpu_threshold
                 );
             } else {
                 println!(
-                    "🚨 Discovered {} suspect/runaway process(es):",
+                    "🚨 [{}] Discovered {} suspect/runaway process(es):",
+                    server_name,
                     suspects.len()
                 );
                 for p in suspects {
@@ -157,12 +163,17 @@ async fn main() {
                 config.http_port = p;
             }
 
-            info!("🩸 MANIAC KILLER Watchdog starting...");
+            let server_name = config.get_server_name();
+            let base_url = config.get_base_url();
+
+            info!("🩸 MANIAC KILLER Watchdog starting on {}...", server_name);
+            info!("  • Server Name: {}", server_name);
             info!("  • Sampling Interval: {}s", config.check_interval_secs);
             info!(
                 "  • CPU Threshold: {:.0}% (Streak: {} checks)",
                 config.cpu_threshold, config.cpu_streak
             );
+            info!("  • Webhook Base URL: {}", base_url);
             if let Some(chan) = &config.slack_channel {
                 info!("  • Slack Channel: {}", chan);
             }
@@ -202,8 +213,6 @@ async fn main() {
                 }
             });
 
-            let base_url = config.get_base_url();
-
             // Watchdog Loop
             let check_dur = Duration::from_secs(config.check_interval_secs);
             loop {
@@ -216,7 +225,8 @@ async fn main() {
 
                 for suspect in suspects {
                     warn!(
-                        "🚨 RUNAWAY PROCESS DETECTED: [PID {}] {} (CPU {:.1}%, MEM {}MB) - {}",
+                        "🚨 [{}] RUNAWAY PROCESS DETECTED: [PID {}] {} (CPU {:.1}%, MEM {}MB) - {}",
+                        server_name,
                         suspect.pid,
                         suspect.name,
                         suspect.cpu_percent,

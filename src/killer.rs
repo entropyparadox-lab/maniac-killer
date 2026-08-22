@@ -4,6 +4,7 @@ use nix::unistd::Pid;
 use std::collections::HashSet;
 use std::time::Duration;
 use sysinfo::{Pid as SysPid, System};
+use tracing::warn;
 
 #[derive(Debug, Clone, serde::Serialize)]
 pub struct KillResult {
@@ -20,8 +21,9 @@ pub struct KillResult {
 pub struct Executioner;
 
 impl Executioner {
-    /// Recursively discover all child/descendant PIDs belonging to the target process tree
-    fn find_process_tree(sys: &System, root_pid: u32) -> Vec<u32> {
+    /// Recursively discover all child/descendant PIDs belonging to the target process tree,
+    /// while strictly filtering out any descendant process that qualifies as immune/protected.
+    fn find_safe_process_tree(sys: &System, root_pid: u32, custom_whitelist: &[String]) -> Vec<u32> {
         let mut tree = Vec::new();
         let mut queue = vec![root_pid];
         let mut visited = HashSet::new();
@@ -33,6 +35,15 @@ impl Executioner {
                 let pid_u32 = pid.as_u32();
                 if let Some(ppid) = proc.parent() {
                     if ppid.as_u32() == current_parent && !visited.contains(&pid_u32) {
+                        // Double check child immunity
+                        if Protection::is_process_protected(pid_u32, proc, custom_whitelist) {
+                            warn!(
+                                "🛡️ Safety Guard: PID {} ({}) is protected and will NOT be killed as a descendant.",
+                                pid_u32,
+                                proc.name().to_string_lossy()
+                            );
+                            continue;
+                        }
                         visited.insert(pid_u32);
                         queue.push(pid_u32);
                     }
@@ -57,17 +68,17 @@ impl Executioner {
             .ok_or_else(|| format!("PID {} not found in running processes", pid))?;
 
         let name = proc.name().to_string_lossy().to_string();
-        let cmdline_vec: Vec<String> = proc
+        let cmdline = proc
             .cmd()
             .iter()
             .map(|s| s.to_string_lossy().to_string())
-            .collect();
-        let cmdline = cmdline_vec.join(" ");
+            .collect::<Vec<_>>()
+            .join(" ");
         let current_start_time = proc.start_time();
 
         // 1. TOCTOU Protection: Ensure PID wasn't recycled to an innocent process
         if let Some(expected_st) = expected_start_time {
-            if expected_st != current_start_time {
+            if expected_st != 0 && expected_st != current_start_time {
                 return Err(format!(
                     "🛡️ TOCTOU Guard: PID {} has been recycled! (Expected start_time {}, but found {}). Aborting kill.",
                     pid, expected_st, current_start_time
@@ -75,16 +86,16 @@ impl Executioner {
             }
         }
 
-        // 2. Strict Agent & System Immunity Check
-        if Protection::is_protected(pid, &name, &cmdline_vec, custom_whitelist) {
+        // 2. Strict Agent & System Immunity Check on Root
+        if Protection::is_process_protected(pid, proc, custom_whitelist) {
             return Err(format!(
                 "🛡️ Immunity Guard: PID {} ({}) is PROTECTED and cannot be terminated!",
                 pid, name
             ));
         }
 
-        // 3. Discover entire process tree (Parent + Child workers)
-        let target_tree = Self::find_process_tree(&sys, pid);
+        // 3. Discover entire process tree safely (with child immunity enforcement)
+        let target_tree = Self::find_safe_process_tree(&sys, pid, custom_whitelist);
 
         let mut total_mem_mb = 0;
         for &tree_pid in &target_tree {
