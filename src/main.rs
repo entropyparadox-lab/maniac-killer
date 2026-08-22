@@ -117,7 +117,7 @@ async fn main() {
                 "⚔️ Target PID {} — validating agent immunity & executing...",
                 pid
             );
-            match Executioner::execute(pid, &config.custom_whitelist) {
+            match Executioner::execute(pid, None, &config.custom_whitelist).await {
                 Ok(result) => {
                     println!("🩸 Execution Result: {}", result.message);
                 }
@@ -202,10 +202,7 @@ async fn main() {
                 }
             });
 
-            let base_url = config
-                .base_url
-                .clone()
-                .unwrap_or_else(|| format!("http://localhost:{}", config.http_port));
+            let base_url = config.get_base_url();
 
             // Watchdog Loop
             let check_dur = Duration::from_secs(config.check_interval_secs);

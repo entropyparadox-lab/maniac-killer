@@ -24,13 +24,9 @@ impl SlackNotifier {
 
         let client = Client::new();
 
-        let kill_url = format!(
-            "{}/kill?pid={}&token={}",
-            base_url, proc.pid, config.auth_token
-        );
-        let mute_url = format!(
-            "{}/mute?pid={}&hours=1&token={}",
-            base_url, proc.pid, config.auth_token
+        let confirm_kill_url = format!(
+            "{}/confirm-kill?pid={}&st={}&token={}",
+            base_url, proc.pid, proc.start_time, config.auth_token
         );
         let wl_url = format!(
             "{}/whitelist?name={}&token={}",
@@ -45,9 +41,12 @@ impl SlackNotifier {
             proc.cmdline.clone()
         };
 
+        let server_name = config.get_server_name();
+        let ssh_host = config.get_ssh_host();
+
         let fallback_text = format!(
-            "🚨 [MANIAC KILLER] Runaway Process Detected: {} (PID: {}, CPU: {:.1}%, MEM: {}MB)",
-            proc.name, proc.pid, proc.cpu_percent, proc.memory_mb
+            "🚨 [MANIAC KILLER] Runaway Process on {}: {} (PID: {}, CPU: {:.1}%, MEM: {}MB)",
+            server_name, proc.name, proc.pid, proc.cpu_percent, proc.memory_mb
         );
 
         let blocks = json!([
@@ -55,7 +54,7 @@ impl SlackNotifier {
                 "type": "header",
                 "text": {
                     "type": "plain_text",
-                    "text": "🚨 [MANIAC KILLER] Runaway Process Captured!",
+                    "text": format!("🚨 [MANIAC KILLER] {} 폭주 프로세스 포착!", server_name),
                     "emoji": true
                 }
             },
@@ -98,7 +97,7 @@ impl SlackNotifier {
                             "emoji": true
                         },
                         "style": "danger",
-                        "url": kill_url
+                        "url": confirm_kill_url
                     },
                     {
                         "type": "button",
@@ -108,15 +107,6 @@ impl SlackNotifier {
                             "emoji": true
                         },
                         "url": wl_url
-                    },
-                    {
-                        "type": "button",
-                        "text": {
-                            "type": "plain_text",
-                            "text": "⏳ Mute 1h",
-                            "emoji": true
-                        },
-                        "url": mute_url
                     }
                 ]
             },
@@ -125,7 +115,7 @@ impl SlackNotifier {
                 "elements": [
                     {
                         "type": "mrkdwn",
-                        "text": format!("⚡ CLI Quick Kill: `maniac-killer kill {}` | AI Coding & System Daemons are strictly protected.", proc.pid)
+                        "text": format!("⚡ CLI Quick Kill: `ssh {} \"maniac-killer kill {}\"` | AI Coding & System Daemons are strictly protected.", ssh_host, proc.pid)
                     }
                 ]
             }
@@ -180,8 +170,8 @@ impl SlackNotifier {
 
         let client = Client::new();
         let text = format!(
-            "🩸 *[MANIAC KILLER] Execution Report*\n• *PID:* `{}` ({})\n• *Status:* {}\n• *Freed Memory:* `{} MB`\n• *Command:* `{}`",
-            result.pid, result.name, result.message, result.memory_freed_mb, result.cmdline
+            "🩸 *[MANIAC KILLER] Execution Report*\n• *PID:* `{}` ({})\n• *Status:* {}\n• *Freed Memory:* `{} MB`\n• *Terminated Tree PIDs:* `{:?}`\n• *Command:* `{}`",
+            result.pid, result.name, result.message, result.memory_freed_mb, result.killed_pids, result.cmdline
         );
 
         let payload = json!({

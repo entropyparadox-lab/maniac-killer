@@ -24,13 +24,9 @@ impl TelegramNotifier {
 
         let client = Client::new();
 
-        let kill_url = format!(
-            "{}/kill?pid={}&token={}",
-            base_url, proc.pid, config.auth_token
-        );
-        let mute_url = format!(
-            "{}/mute?pid={}&hours=1&token={}",
-            base_url, proc.pid, config.auth_token
+        let confirm_kill_url = format!(
+            "{}/confirm-kill?pid={}&st={}&token={}",
+            base_url, proc.pid, proc.start_time, config.auth_token
         );
         let wl_url = format!(
             "{}/whitelist?name={}&token={}",
@@ -74,9 +70,8 @@ impl TelegramNotifier {
             "reply_markup": {
                 "inline_keyboard": [
                     [
-                        { "text": "🩸 KILL NOW", "url": kill_url },
-                        { "text": "🛡️ Whitelist", "url": wl_url },
-                        { "text": "⏳ Mute 1h", "url": mute_url }
+                        { "text": "🩸 KILL NOW", "url": confirm_kill_url },
+                        { "text": "🛡️ Whitelist", "url": wl_url }
                     ]
                 ]
             }
@@ -113,8 +108,14 @@ impl TelegramNotifier {
             • *PID:* `{}` ({})\n\
             • *Status:* {}\n\
             • *Freed Memory:* `{} MB`\n\
+            • *Terminated PIDs:* `{:?}`\n\
             • *Command:* `{}`",
-            result.pid, result.name, result.message, result.memory_freed_mb, result.cmdline
+            result.pid,
+            result.name,
+            result.message,
+            result.memory_freed_mb,
+            result.killed_pids,
+            result.cmdline
         );
 
         let payload = json!({

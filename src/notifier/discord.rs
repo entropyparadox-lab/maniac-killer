@@ -20,13 +20,9 @@ impl DiscordNotifier {
 
         let client = Client::new();
 
-        let kill_url = format!(
-            "{}/kill?pid={}&token={}",
-            base_url, proc.pid, config.auth_token
-        );
-        let mute_url = format!(
-            "{}/mute?pid={}&hours=1&token={}",
-            base_url, proc.pid, config.auth_token
+        let confirm_kill_url = format!(
+            "{}/confirm-kill?pid={}&st={}&token={}",
+            base_url, proc.pid, proc.start_time, config.auth_token
         );
         let wl_url = format!(
             "{}/whitelist?name={}&token={}",
@@ -55,7 +51,7 @@ impl DiscordNotifier {
                         { "name": "Command", "value": format!("`{}`", cmd_short), "inline": false },
                         {
                             "name": "⚡ Actions",
-                            "value": format!("[🩸 **KILL NOW**]({}) • [🛡️ Whitelist]({}) • [⏳ Mute 1h]({})", kill_url, wl_url, mute_url),
+                            "value": format!("[🩸 **KILL NOW**]({}) • [🛡️ Whitelist]({})", confirm_kill_url, wl_url),
                             "inline": false
                         }
                     ],
@@ -95,6 +91,7 @@ impl DiscordNotifier {
                     "color": 3066993, // Green
                     "fields": [
                         { "name": "Freed Memory", "value": format!("{} MB", result.memory_freed_mb), "inline": true },
+                        { "name": "Terminated Tree PIDs", "value": format!("{:?}", result.killed_pids), "inline": true },
                         { "name": "Command", "value": format!("`{}`", result.cmdline), "inline": false }
                     ]
                 }

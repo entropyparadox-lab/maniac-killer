@@ -48,19 +48,27 @@ impl Protection {
         "coreservicesd",
         "init",
         "kthreadd",
-        // Databases & Container Infrastructure
+        // Databases & Container / Gateway Infrastructure
         "postgres",
         "mysqld",
         "mariadbd",
         "redis-server",
+        "clickhouse",
+        "clickhouse-server",
+        "rybbit",
+        "pm2",
         "docker",
         "dockerd",
         "containerd",
         "orbstack",
         "virtualization",
         "tailscaled",
+        "tailscale",
+        "cloudflared",
         "caddy",
         "nginx",
+        "supervisord",
+        "wireguard",
     ];
 
     pub fn is_protected(
@@ -132,6 +140,22 @@ mod tests {
             1236,
             "hermes",
             &["hermes agent".to_string()],
+            &[]
+        ));
+    }
+
+    #[test]
+    fn test_databases_and_daemons_immunity() {
+        assert!(Protection::is_protected(
+            5001,
+            "clickhouse-server",
+            &["clickhouse-server --config-file=...".to_string()],
+            &[]
+        ));
+        assert!(Protection::is_protected(
+            5002,
+            "PM2",
+            &["PM2 v6.0.14: God Daemon".to_string()],
             &[]
         ));
     }
