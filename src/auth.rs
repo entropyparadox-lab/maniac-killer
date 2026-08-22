@@ -95,7 +95,7 @@ pub fn hex_encode(bytes: &[u8]) -> String {
 
 /// Hex decoder
 pub fn hex_decode(s: &str) -> Option<Vec<u8>> {
-    if s.len() % 2 != 0 {
+    if (s.len() & 1) != 0 {
         return None;
     }
     let mut bytes = Vec::with_capacity(s.len() / 2);
