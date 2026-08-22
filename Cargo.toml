@@ -9,7 +9,7 @@ license = "MIT OR Apache-2.0"
 repository = "https://github.com/entropyparadox-lab/maniac-killer"
 homepage = "https://github.com/entropyparadox-lab/maniac-killer"
 keywords = ["watchdog", "process-manager", "ai-agent", "claude-code", "chatops"]
-categories = ["command-line-utilities", "development-tools::debugging", "system::monitoring"]
+categories = ["command-line-utilities", "development-tools::debugging", "development-tools"]
 
 [dependencies]
 tokio = { version = "1.43", features = ["full"] }
