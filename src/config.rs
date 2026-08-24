@@ -55,6 +55,12 @@ pub struct Config {
     /// Telegram Chat ID
     pub telegram_chat_id: Option<String>,
 
+    /// Telegram Thread / Topic ID (for forum supergroups)
+    pub telegram_thread_id: Option<i64>,
+
+    /// Alias for telegram_thread_id
+    pub telegram_topic_id: Option<i64>,
+
     /// Custom process name/command keywords to immune from termination
     #[serde(default)]
     pub custom_whitelist: Vec<String>,
@@ -106,6 +112,8 @@ impl Default for Config {
             discord_webhook_url: None,
             telegram_bot_token: None,
             telegram_chat_id: None,
+            telegram_thread_id: None,
+            telegram_topic_id: None,
             custom_whitelist: Vec::new(),
         }
     }
@@ -275,6 +283,16 @@ impl Config {
                 .or_else(|_| std::env::var("TELEGRAM_CHAT_ID"))
             {
                 config.telegram_chat_id = Some(cid);
+            }
+        }
+        if config.telegram_thread_id.is_none() && config.telegram_topic_id.is_none() {
+            if let Ok(tid) = std::env::var("MANIAC_TELEGRAM_THREAD_ID")
+                .or_else(|_| std::env::var("TELEGRAM_THREAD_ID"))
+                .or_else(|_| std::env::var("TELEGRAM_TOPIC_ID"))
+            {
+                if let Ok(num) = tid.parse::<i64>() {
+                    config.telegram_thread_id = Some(num);
+                }
             }
         }
 

@@ -98,7 +98,7 @@ impl TelegramNotifier {
             cmd_short
         );
 
-        let payload = json!({
+        let mut payload = json!({
             "chat_id": chat_id,
             "text": text,
             "parse_mode": "Markdown",
@@ -112,6 +112,10 @@ impl TelegramNotifier {
                 ]
             }
         });
+
+        if let Some(thread_id) = config.telegram_thread_id.or(config.telegram_topic_id) {
+            payload["message_thread_id"] = json!(thread_id);
+        }
 
         let url = format!("https://api.telegram.org/bot{}/sendMessage", bot_token);
         let resp = client
@@ -154,11 +158,15 @@ impl TelegramNotifier {
             result.cmdline
         );
 
-        let payload = json!({
+        let mut payload = json!({
             "chat_id": chat_id,
             "text": text,
             "parse_mode": "Markdown"
         });
+
+        if let Some(thread_id) = config.telegram_thread_id.or(config.telegram_topic_id) {
+            payload["message_thread_id"] = json!(thread_id);
+        }
 
         let url = format!("https://api.telegram.org/bot{}/sendMessage", bot_token);
         let _ = client.post(&url).json(&payload).send().await;
