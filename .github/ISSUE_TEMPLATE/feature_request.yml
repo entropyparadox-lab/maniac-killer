@@ -1,0 +1,23 @@
+name: "💡 Feature Request"
+description: "Suggest a new watchdog rule, executioner action, or platform support"
+title: "[RFC]: "
+labels: ["enhancement", "discussion"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        We welcome proposals for process resource tracking rules, agent notifications, and CLI improvements!
+  - type: textarea
+    id: problem
+    attributes:
+      label: "Problem / Use Case"
+      description: "Describe the operational problem you want to solve."
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: "Proposed Watchdog Strategy"
+      description: "Describe the proposed heuristic or CLI interface."
+    validations:
+      required: true

@@ -1,0 +1,32 @@
+name: "🐛 Bug Report"
+description: "File an issue for a process watchdog or killer bug in maniac-killer"
+title: "[Bug]: "
+labels: ["bug", "triage"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for reporting an issue in `maniac-killer`!
+  - type: input
+    id: os-version
+    attributes:
+      label: "OS & maniac-killer Version"
+      description: "Linux / macOS version, kernel, and `maniac-killer --version`"
+      placeholder: "Linux 6.17 / macOS 15, maniac-killer v0.1.0"
+    validations:
+      required: true
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: "Describe the bug"
+      description: "What process behavior occurred (zombie process, failed signal, false positive)?"
+    validations:
+      required: true
+  - type: textarea
+    id: reproduction
+    attributes:
+      label: "Reproduction Command / Log"
+      description: "Commands or daemon logs showing the unexpected behavior."
+      render: bash
+    validations:
+      required: true
