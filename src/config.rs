@@ -17,13 +17,17 @@ pub struct Config {
     #[serde(default = "default_cpu_threshold")]
     pub cpu_threshold: f32,
 
-    /// Consecutive sampling streak required before triggering alert (default: 3 checks)
+    /// Consecutive sampling streak required before triggering alert (default: 30 checks = 5 mins)
     #[serde(default = "default_cpu_streak")]
     pub cpu_streak: u32,
 
-    /// Memory usage threshold in megabytes (default: 4096MB)
+    /// Memory usage threshold in megabytes (default: 8192MB)
     #[serde(default = "default_mem_threshold_mb")]
     pub mem_threshold_mb: u64,
+
+    /// Alert cooldown in minutes for the same runaway process (default: 120 mins = 2 hours)
+    #[serde(default = "default_alert_cooldown_mins")]
+    pub alert_cooldown_mins: i64,
 
     /// Webhook server listening port (default: 19999)
     #[serde(default = "default_http_port")]
@@ -70,13 +74,16 @@ fn default_check_interval_secs() -> u64 {
     10
 }
 fn default_cpu_threshold() -> f32 {
-    120.0
+    250.0
 }
 fn default_cpu_streak() -> u32 {
-    3
+    30
 }
 fn default_mem_threshold_mb() -> u64 {
-    4096
+    8192
+}
+fn default_alert_cooldown_mins() -> i64 {
+    120
 }
 fn default_http_port() -> u16 {
     19999
@@ -103,6 +110,7 @@ impl Default for Config {
             cpu_threshold: default_cpu_threshold(),
             cpu_streak: default_cpu_streak(),
             mem_threshold_mb: default_mem_threshold_mb(),
+            alert_cooldown_mins: default_alert_cooldown_mins(),
             http_port: default_http_port(),
             http_host: default_http_host(),
             auth_token: default_auth_token(),

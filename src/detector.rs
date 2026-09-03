@@ -182,7 +182,7 @@ impl Detector {
 
             // Criteria 1: Sustained High CPU (Build tools get higher streak threshold to prevent false positives)
             let required_streak = if is_compiler {
-                config.cpu_streak.max(18) // 18 checks = ~3 mins of sustained max CPU for compilers
+                config.cpu_streak.max(60) // 60 checks = ~10 mins of sustained max CPU for compilers/SSR servers
             } else {
                 config.cpu_streak
             };
@@ -243,8 +243,9 @@ impl Detector {
 
                 // Determine if we should trigger an alert
                 let streak_met = entry.cpu_streak >= required_streak || is_orphan_daemon;
+                let cooldown_mins = config.alert_cooldown_mins;
                 let alert_cooldown_ok = match entry.last_alert_time {
-                    Some(t) => (now - t).num_minutes() >= 15,
+                    Some(t) => (now - t).num_minutes() >= cooldown_mins,
                     None => true,
                 };
                 let not_muted_ok = match entry.muted_until {
