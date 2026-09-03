@@ -19,6 +19,11 @@ impl Protection {
         "llama-server",
         "serena",
         "maniac-killer",
+        "agent-browser",
+        "chrome-headless-shell",
+        "playwright",
+        "watchman",
+        "code-server",
         // Developer Terminals & Multiplexers
         "tmux",
         "screen",
@@ -141,6 +146,8 @@ impl Protection {
                 || exe_str.contains("/claude")
                 || exe_str.contains("/.hermes/")
                 || exe_str.contains("/hermes")
+                || exe_str.contains("agent-browser")
+                || exe_str.contains("chrome-headless-shell")
                 || exe_str.starts_with("/system/library")
                 || exe_str.starts_with("/usr/libexec")
                 || exe_str.starts_with("/lib/systemd")

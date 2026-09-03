@@ -215,27 +215,54 @@ async fn main() {
 
             // Watchdog Loop
             let check_dur = Duration::from_secs(config.check_interval_secs);
+
+            #[cfg(unix)]
+            let mut sigterm =
+                tokio::signal::unix::signal(tokio::signal::unix::SignalKind::terminate())
+                    .expect("Failed to register SIGTERM handler");
+
+            info!("🚀 Watchdog loop running. Waiting for events or termination signals...");
+
             loop {
-                tokio::time::sleep(check_dur).await;
+                tokio::select! {
+                    _ = tokio::signal::ctrl_c() => {
+                        info!("🛑 Received SIGINT (Ctrl+C). Terminating MANIAC KILLER cleanly.");
+                        break;
+                    }
+                    _ = async {
+                        #[cfg(unix)]
+                        {
+                            sigterm.recv().await
+                        }
+                        #[cfg(not(unix))]
+                        {
+                            std::future::pending::<()>().await
+                        }
+                    } => {
+                        info!("🛑 Received SIGTERM. Terminating MANIAC KILLER cleanly.");
+                        break;
+                    }
+                    _ = tokio::time::sleep(check_dur) => {
+                        let suspects = {
+                            let mut det = detector.lock().await;
+                            det.scan(&config)
+                        };
 
-                let suspects = {
-                    let mut det = detector.lock().await;
-                    det.scan(&config)
-                };
+                        for suspect in suspects {
+                            warn!(
+                                "🚨 [{}] RUNAWAY PROCESS DETECTED: [PID {}] {} (CPU {:.1}%, MEM {}MB) - {}",
+                                server_name,
+                                suspect.pid,
+                                suspect.name,
+                                suspect.cpu_percent,
+                                suspect.memory_mb,
+                                suspect.reason
+                            );
 
-                for suspect in suspects {
-                    warn!(
-                        "🚨 [{}] RUNAWAY PROCESS DETECTED: [PID {}] {} (CPU {:.1}%, MEM {}MB) - {}",
-                        server_name,
-                        suspect.pid,
-                        suspect.name,
-                        suspect.cpu_percent,
-                        suspect.memory_mb,
-                        suspect.reason
-                    );
-
-                    // Dispatch alert to Slack / Discord / Telegram
-                    Notifier::dispatch_alert(&config, &suspect, &base_url).await;
+                            // Dispatch alert to Slack / Discord / Telegram
+                            Notifier::dispatch_alert(&config, &suspect, &base_url).await;
+                        }
+                    }
                 }
             }
         }

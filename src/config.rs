@@ -3,10 +3,10 @@ use std::path::{Path, PathBuf};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Config {
-    /// Server/Node identifier (e.g. "server-node-1", "server-node-2", "worker-node-1")
+    /// Server/Node identifier (e.g. "prod-app-01", "worker-node-2")
     pub server_name: Option<String>,
 
-    /// SSH host alias for CLI kill hints in alert notifications (e.g. "server-node-1", "server-node-2", "m2")
+    /// SSH host alias for CLI kill hints in alert notifications (e.g. "server1", "worker-01")
     pub ssh_host: Option<String>,
 
     /// Watchdog sampling interval in seconds (default: 10)
@@ -37,7 +37,7 @@ pub struct Config {
     #[serde(default = "default_auth_token")]
     pub auth_token: String,
 
-    /// Public/Tailscale/LAN base URL for interactive buttons (e.g. "http://server-node-1.example.internal:19999")
+    /// Public/Tailscale/LAN base URL for interactive buttons (e.g. "http://192.168.1.50:19999" or "https://monitor.internal:19999")
     pub base_url: Option<String>,
 
     /// Slack Bot OAuth Token (xoxb-...)
@@ -127,22 +127,11 @@ impl Config {
             }
         }
 
-        let hostname = sysinfo::System::host_name().unwrap_or_else(|| {
+        sysinfo::System::host_name().unwrap_or_else(|| {
             std::env::var("HOSTNAME")
                 .or_else(|_| std::env::var("HOST"))
                 .unwrap_or_else(|_| "unknown-server".to_string())
-        });
-
-        let lower = hostname.to_lowercase();
-        if lower.contains("mac") || lower.contains("admin-node") || lower.contains("dev-node") {
-            "server-node-1".to_string()
-        } else if lower.contains("server-node-2") {
-            "server-node-2".to_string()
-        } else if lower.contains("audio-node") || lower.contains("worker-node-1") {
-            "worker-node-1".to_string()
-        } else {
-            hostname
-        }
+        })
     }
 
     pub fn get_ssh_host(&self) -> String {
@@ -161,14 +150,7 @@ impl Config {
             }
         }
 
-        let s_name = self.get_server_name();
-        if s_name == "server-node-1" {
-            format!("http://server-node-1.example.internal:{}", self.http_port)
-        } else if s_name == "server-node-2" {
-            format!("http://server-node-2.example.internal:{}", self.http_port)
-        } else {
-            format!("http://localhost:{}", self.http_port)
-        }
+        format!("http://localhost:{}", self.http_port)
     }
 
     pub fn load_or_default(custom_path: Option<&Path>) -> Self {
@@ -237,15 +219,15 @@ impl Config {
             config.base_url = Some(val);
         }
 
-        // Auto-discover Slack tokens from environment or known EP paths if not set
+        // Auto-discover Slack tokens from environment or ~/.config/maniac-killer/maniac-killer.env
         if config.slack_bot_token.is_none() {
             if let Ok(tok) = std::env::var("MANIAC_SLACK_BOT_TOKEN")
                 .or_else(|_| std::env::var("SLACK_BOT_TOKEN"))
             {
                 config.slack_bot_token = Some(tok);
             } else {
-                let ep_env = dirs_home().join(".config/maniac-killer/maniac-killer.env");
-                if let Some((tok, chan)) = parse_env_file(&ep_env) {
+                let conf_env = dirs_home().join(".config/maniac-killer/maniac-killer.env");
+                if let Some((tok, chan)) = parse_env_file(&conf_env) {
                     config.slack_bot_token = Some(tok);
                     if config.slack_channel.is_none() {
                         config.slack_channel = Some(chan);

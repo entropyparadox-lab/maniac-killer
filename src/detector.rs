@@ -33,7 +33,17 @@ pub struct Detector {
 impl Detector {
     pub fn new(whitelist: Vec<String>) -> Self {
         let mut sys = System::new_all();
-        sys.refresh_all();
+        sys.refresh_processes_specifics(
+            sysinfo::ProcessesToUpdate::All,
+            true,
+            sysinfo::ProcessRefreshKind::nothing()
+                .with_cpu()
+                .with_memory()
+                .with_cmd(sysinfo::UpdateKind::OnlyIfNotSet)
+                .with_cwd(sysinfo::UpdateKind::OnlyIfNotSet)
+                .with_exe(sysinfo::UpdateKind::OnlyIfNotSet)
+                .with_user(sysinfo::UpdateKind::OnlyIfNotSet),
+        );
         Self {
             sys,
             tracked: HashMap::new(),
@@ -115,51 +125,57 @@ impl Detector {
     }
 
     pub fn scan(&mut self, config: &Config) -> Vec<TrackedProcess> {
-        self.sys.refresh_all();
+        self.sys.refresh_processes_specifics(
+            sysinfo::ProcessesToUpdate::All,
+            true,
+            sysinfo::ProcessRefreshKind::nothing()
+                .with_cpu()
+                .with_memory()
+                .with_cmd(sysinfo::UpdateKind::OnlyIfNotSet)
+                .with_cwd(sysinfo::UpdateKind::OnlyIfNotSet)
+                .with_exe(sysinfo::UpdateKind::OnlyIfNotSet)
+                .with_user(sysinfo::UpdateKind::OnlyIfNotSet),
+        );
         let now = Local::now();
         let mut suspects = Vec::new();
-        let mut current_pids = HashMap::new();
+        let orphan_mem_limit = (config.mem_threshold_mb / 2).max(2048);
 
         for (pid, proc) in self.sys.processes() {
             let pid_u32 = pid.as_u32();
-            let name = proc.name().to_string_lossy().to_string();
+            let cpu = proc.cpu_usage();
+            let mem_mb = proc.memory() / (1024 * 1024);
+            let ppid = proc.parent().map(|p| p.as_u32());
+            let is_already_tracked = self.tracked.contains_key(&pid_u32);
+
+            let is_high_cpu = cpu >= config.cpu_threshold;
+            let is_memory_hog = mem_mb >= config.mem_threshold_mb && cpu >= 30.0;
+            let is_orphan_candidate =
+                ppid == Some(1) && (cpu >= 50.0 || mem_mb >= orphan_mem_limit);
+
+            // Fast primitive gate: if not exceeding any threshold and not already tracked, skip immediately
+            if !is_high_cpu && !is_memory_hog && !is_orphan_candidate && !is_already_tracked {
+                continue;
+            }
+
+            // Skip protected/system processes
+            if pid_u32 <= 100 || Protection::is_process_protected(pid_u32, proc, &self.whitelist) {
+                if is_already_tracked {
+                    self.tracked.remove(&pid_u32);
+                }
+                continue;
+            }
+
+            let name = proc.name().to_string_lossy();
+            let name_lower = name.to_lowercase();
+            let start_time = proc.start_time();
+
+            // Lazy command line formatting only for actual candidates
             let cmdline_vec: Vec<String> = proc
                 .cmd()
                 .iter()
                 .map(|s| s.to_string_lossy().to_string())
                 .collect();
             let cmdline = cmdline_vec.join(" ");
-            let cpu = proc.cpu_usage();
-            let mem_mb = proc.memory() / (1024 * 1024);
-            let ppid = proc.parent().map(|p| p.as_u32());
-            let cwd = proc
-                .cwd()
-                .map(|p| p.to_string_lossy().to_string())
-                .unwrap_or_default();
-            let user = proc
-                .user_id()
-                .map(|u| u.to_string())
-                .unwrap_or_else(|| "unknown".to_string());
-            let start_time = proc.start_time();
-
-            // 1. Skip if immune or whitelisted (using deep inspection)
-            if Protection::is_process_protected(pid_u32, proc, &self.whitelist) {
-                continue;
-            }
-
-            current_pids.insert(
-                pid_u32,
-                (
-                    name.clone(),
-                    cmdline.clone(),
-                    cwd.clone(),
-                    ppid,
-                    user.clone(),
-                    cpu,
-                    mem_mb,
-                    start_time,
-                ),
-            );
 
             // Compiler / Build Pipeline Intelligence
             let is_compiler = self.is_build_compiler(&name, &cmdline, ppid);
@@ -171,20 +187,24 @@ impl Detector {
                 config.cpu_streak
             };
 
-            let is_high_cpu = cpu >= config.cpu_threshold;
-
-            // Criteria 2: Orphaned background daemons with High Memory/CPU (PPID 1)
+            // Criteria 2: Real Orphaned background daemons with High Memory or CPU (PPID 1)
+            // (Defunct/zombie daemons, NOT active developer tools or node/agent processes)
             let is_orphan_daemon = ppid == Some(1)
-                && (name.contains("daemon")
-                    || name.contains("chromium")
-                    || name.contains("node")
-                    || cmdline.contains("agent-browser"))
-                && (cpu > 20.0 || mem_mb > 500);
-
-            // Criteria 3: Extreme Memory Hog (> configured MB)
-            let is_memory_hog = mem_mb >= config.mem_threshold_mb && cpu >= 30.0;
+                && (name_lower.contains("daemon")
+                    || name_lower.contains("zombie")
+                    || name_lower.contains("orphan"))
+                && (cpu >= 50.0 || mem_mb >= orphan_mem_limit);
 
             if is_high_cpu || is_orphan_daemon || is_memory_hog {
+                let cwd = proc
+                    .cwd()
+                    .map(|p| p.to_string_lossy().to_string())
+                    .unwrap_or_default();
+                let user = proc
+                    .user_id()
+                    .map(|u| u.to_string())
+                    .unwrap_or_else(|| "unknown".to_string());
+
                 let entry = self.tracked.entry(pid_u32).or_insert_with(|| {
                     let reason = if is_high_cpu {
                         format!("CPU {:.1}% threshold exceeded", cpu)
@@ -198,11 +218,11 @@ impl Detector {
                     };
                     TrackedProcess {
                         pid: pid_u32,
-                        name: name.clone(),
-                        cmdline: cmdline.clone(),
-                        cwd: cwd.clone(),
+                        name: name.to_string(),
+                        cmdline,
+                        cwd,
                         ppid,
-                        user_id: user.clone(),
+                        user_id: user,
                         cpu_percent: cpu,
                         memory_mb: mem_mb,
                         cpu_streak: 0,
@@ -261,8 +281,8 @@ impl Detector {
 
         // Clean up dead processes from tracking
         self.tracked.retain(|pid, proc| {
-            if let Some((_, _, _, _, _, _, _, st)) = current_pids.get(pid) {
-                *st == proc.start_time
+            if let Some(sys_proc) = self.sys.process(Pid::from(*pid as usize)) {
+                sys_proc.start_time() == proc.start_time
             } else {
                 false
             }
