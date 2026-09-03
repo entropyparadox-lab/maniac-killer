@@ -84,6 +84,7 @@ print("✅ Successfully updated thresholds in", path)
 EOF
 else
     echo "✨ Generating new configuration at: $CONFIG_PATH"
+    RAND_TOKEN="maniac-$(openssl rand -hex 16 2>/dev/null || python3 -c 'import secrets; print(secrets.token_hex(16))')"
     cat << EOF > "$CONFIG_PATH"
 # Maniac Killer Hardware-Tuned Configuration
 server_name = "$(hostname)"
@@ -94,7 +95,7 @@ mem_threshold_mb = ${CALC_MEM}
 alert_cooldown_mins = 120
 http_port = 19999
 http_host = "0.0.0.0"
-auth_token = "ep-maniac-secret-token"
+auth_token = "${RAND_TOKEN}"
 
 custom_whitelist = [
     "claude",
