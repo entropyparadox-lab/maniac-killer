@@ -86,9 +86,27 @@ async fn main() {
         port: None,
     }) {
         Commands::Init { path } => {
+            let config = Config::auto_tune_from_hardware();
             let toml_str = toml::to_string_pretty(&config).unwrap();
             std::fs::write(&path, toml_str).expect("Failed to write config file");
-            println!("✨ Initialized template configuration file at: {:?}", path);
+            let mut sys = sysinfo::System::new_all();
+            sys.refresh_memory();
+            let cpus = sys.cpus().len();
+            let ram_gb = sys.total_memory() / (1024 * 1024 * 1024);
+            println!("✨ Initialized hardware-tuned configuration at: {:?}", path);
+            println!(
+                "   ↳ Hardware detected: {} CPU cores, {} GB RAM",
+                cpus, ram_gb
+            );
+            println!(
+                "   ↳ Auto-tuned CPU threshold: {:.0}%",
+                config.cpu_threshold
+            );
+            println!(
+                "   ↳ Auto-tuned Memory threshold: {} MB ({:.1} GB)",
+                config.mem_threshold_mb,
+                config.mem_threshold_mb as f32 / 1024.0
+            );
         }
         Commands::Scan => {
             let server_name = config.get_server_name();

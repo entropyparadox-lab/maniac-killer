@@ -128,6 +128,37 @@ impl Default for Config {
 }
 
 impl Config {
+    /// Auto-tune watchdog thresholds according to the host machine's physical hardware capacity
+    pub fn auto_tune_from_hardware() -> Self {
+        let mut sys = sysinfo::System::new_all();
+        sys.refresh_memory();
+
+        let cpus = sys.cpus().len().max(1);
+        let total_mem_mb = sys.total_memory() / (1024 * 1024);
+
+        // 1. Adaptive CPU Threshold:
+        // - Small machines (<=4 cores): 50% capacity (min 150.0%)
+        // - Mid machines (5-16 cores): 25% capacity (min 250.0%)
+        // - Large server machines (>16 cores): 15% capacity (min 400.0%, max 800.0%)
+        let cpu_threshold = if cpus <= 4 {
+            (cpus as f32 * 50.0).max(150.0)
+        } else if cpus <= 16 {
+            (cpus as f32 * 25.0).max(250.0)
+        } else {
+            (cpus as f32 * 15.0).clamp(400.0, 800.0)
+        };
+
+        // 2. Adaptive Memory Threshold:
+        // - Trigger alert if a single rogue process monopolizes >= 25% of total physical RAM
+        // - Clamped between 4GB (4096MB) and 64GB (65536MB)
+        let mem_threshold_mb = ((total_mem_mb as f64 * 0.25) as u64).clamp(4096, 65536);
+
+        let mut config = Self::default();
+        config.cpu_threshold = cpu_threshold;
+        config.mem_threshold_mb = mem_threshold_mb;
+        config
+    }
+
     pub fn get_server_name(&self) -> String {
         if let Some(name) = &self.server_name {
             if !name.trim().is_empty() {
