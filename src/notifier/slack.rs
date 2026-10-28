@@ -5,7 +5,7 @@ use crate::killer::KillResult;
 use crate::notifier::urlencode;
 use chrono::Utc;
 use reqwest::Client;
-use serde_json::json;
+use serde_json::{json, Value};
 
 pub struct SlackNotifier;
 
@@ -15,20 +15,9 @@ impl SlackNotifier {
         proc: &TrackedProcess,
         base_url: &str,
     ) -> Result<(), String> {
-        let token = match &config.slack_bot_token {
-            Some(t) if !t.is_empty() => t,
-            _ => return Err("Slack Bot Token not configured".to_string()),
-        };
-        let channel = match &config.slack_channel {
-            Some(c) if !c.is_empty() => c,
-            _ => return Err("Slack Channel not configured".to_string()),
-        };
-
         let server_name = config.get_server_name();
         let ssh_host = config.get_ssh_host();
         let now_ts = Utc::now().timestamp();
-
-        let client = Client::new();
 
         // Generate HMAC-SHA256 Expiring Action Signatures (Valid for 15 mins)
         let kill_sig = Auth::sign_action(
@@ -167,10 +156,54 @@ impl SlackNotifier {
         ]);
 
         let payload = json!({
-            "channel": channel,
             "text": fallback_text,
             "blocks": blocks
         });
+
+        Self::post(config, payload).await
+    }
+
+    pub async fn send_kill_report(config: &Config, result: &KillResult) -> Result<(), String> {
+        let server_name = config.get_server_name();
+        let text = format!(
+            "🩸 *[MANIAC KILLER — {}] 사살 보고서*\n• *PID:* `{}` ({})\n• *결과:* {}\n• *회수 메모리:* `{} MB`\n• *명령어:* `{}`",
+            server_name, result.pid, result.name, result.message, result.memory_freed_mb, result.cmdline
+        );
+
+        Self::post(config, json!({ "text": text })).await
+    }
+
+    /// Webhook first (no token on the host), bot token + channel as fallback.
+    async fn post(config: &Config, mut payload: Value) -> Result<(), String> {
+        let client = Client::new();
+
+        if let Some(url) = config
+            .slack_webhook_url
+            .as_deref()
+            .filter(|u| !u.is_empty())
+        {
+            // The webhook URL is a secret: strip it from errors before they reach the log.
+            let resp = client
+                .post(url)
+                .json(&payload)
+                .send()
+                .await
+                .map_err(|e| format!("Failed to send Slack webhook: {}", e.without_url()))?;
+            if !resp.status().is_success() {
+                return Err(format!("Slack webhook error status: {}", resp.status()));
+            }
+            return Ok(());
+        }
+
+        let token = match &config.slack_bot_token {
+            Some(t) if !t.is_empty() => t,
+            _ => return Err("Slack Bot Token not configured".to_string()),
+        };
+        let channel = match &config.slack_channel {
+            Some(c) if !c.is_empty() => c,
+            _ => return Err("Slack Channel not configured".to_string()),
+        };
+        payload["channel"] = json!(channel);
 
         let resp = client
             .post("https://slack.com/api/chat.postMessage")
@@ -184,7 +217,7 @@ impl SlackNotifier {
             return Err(format!("Slack API error status: {}", resp.status()));
         }
 
-        let resp_json: serde_json::Value = resp
+        let resp_json: Value = resp
             .json()
             .await
             .map_err(|e| format!("Failed to parse Slack response: {}", e))?;
@@ -202,36 +235,80 @@ impl SlackNotifier {
 
         Ok(())
     }
+}
 
-    pub async fn send_kill_report(config: &Config, result: &KillResult) -> Result<(), String> {
-        let token = match &config.slack_bot_token {
-            Some(t) if !t.is_empty() => t,
-            _ => return Err("Slack Bot Token not configured".to_string()),
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use axum::{extract::State, routing::post, Json, Router};
+    use std::sync::{Arc, Mutex};
+
+    #[tokio::test]
+    async fn webhook_wins_over_bot_token_and_omits_channel() {
+        let received: Arc<Mutex<Vec<Value>>> = Arc::default();
+        let app = Router::new()
+            .route(
+                "/hook",
+                post(
+                    |State(r): State<Arc<Mutex<Vec<Value>>>>, Json(body): Json<Value>| async move {
+                        r.lock().unwrap().push(body);
+                        "ok"
+                    },
+                ),
+            )
+            .with_state(received.clone());
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let addr = listener.local_addr().unwrap();
+        tokio::spawn(async move { axum::serve(listener, app).await.unwrap() });
+
+        let config = Config {
+            slack_webhook_url: Some(format!("http://{}/hook", addr)),
+            slack_bot_token: Some("xoxb-unused".to_string()),
+            slack_channel: Some("C0B552ZK220".to_string()),
+            ..Config::default()
         };
-        let channel = match &config.slack_channel {
-            Some(c) if !c.is_empty() => c,
-            _ => return Err("Slack Channel not configured".to_string()),
+
+        SlackNotifier::post(&config, json!({ "text": "hello" }))
+            .await
+            .unwrap();
+
+        let bodies = received.lock().unwrap();
+        assert_eq!(bodies.len(), 1);
+        assert_eq!(bodies[0]["text"], "hello");
+        assert!(bodies[0].get("channel").is_none());
+    }
+
+    #[tokio::test]
+    async fn webhook_error_does_not_leak_url() {
+        // Port 1 on loopback refuses the connection.
+        let config = Config {
+            slack_webhook_url: Some("http://127.0.0.1:1/services/SECRET".to_string()),
+            ..Config::default()
         };
+        let err = SlackNotifier::post(&config, json!({ "text": "x" }))
+            .await
+            .unwrap_err();
+        assert!(!err.contains("SECRET"), "{}", err);
+    }
 
-        let server_name = config.get_server_name();
-        let client = Client::new();
-        let text = format!(
-            "🩸 *[MANIAC KILLER — {}] 사살 보고서*\n• *PID:* `{}` ({})\n• *결과:* {}\n• *회수 메모리:* `{} MB`\n• *명령어:* `{}`",
-            server_name, result.pid, result.name, result.message, result.memory_freed_mb, result.cmdline
-        );
-
-        let payload = json!({
-            "channel": channel,
-            "text": text
-        });
-
-        let _ = client
-            .post("https://slack.com/api/chat.postMessage")
-            .header("Authorization", format!("Bearer {}", token))
-            .json(&payload)
-            .send()
-            .await;
-
-        Ok(())
+    #[test]
+    fn slack_enabled_by_webhook_alone_or_token_and_channel() {
+        let webhook = Config {
+            slack_webhook_url: Some("https://hooks.slack.com/x".to_string()),
+            ..Config::default()
+        };
+        let bot = Config {
+            slack_bot_token: Some("xoxb".to_string()),
+            slack_channel: Some("C1".to_string()),
+            ..Config::default()
+        };
+        let token_only = Config {
+            slack_bot_token: Some("xoxb".to_string()),
+            ..Config::default()
+        };
+        assert!(webhook.slack_enabled());
+        assert!(bot.slack_enabled());
+        assert!(!token_only.slack_enabled());
+        assert!(!Config::default().slack_enabled());
     }
 }

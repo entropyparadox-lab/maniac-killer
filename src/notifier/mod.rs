@@ -12,7 +12,7 @@ pub struct Notifier;
 impl Notifier {
     pub async fn dispatch_alert(config: &Config, proc: &TrackedProcess, base_url: &str) {
         // 1. Slack
-        if config.slack_bot_token.is_some() && config.slack_channel.is_some() {
+        if config.slack_enabled() {
             if let Err(e) = slack::SlackNotifier::send_alert(config, proc, base_url).await {
                 error!("Failed to send Slack alert: {}", e);
             }
@@ -34,7 +34,7 @@ impl Notifier {
     }
 
     pub async fn dispatch_kill_report(config: &Config, result: &KillResult) {
-        if config.slack_bot_token.is_some() && config.slack_channel.is_some() {
+        if config.slack_enabled() {
             let _ = slack::SlackNotifier::send_kill_report(config, result).await;
         }
         if config.discord_webhook_url.is_some() {

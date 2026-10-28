@@ -44,6 +44,10 @@ pub struct Config {
     /// Public/Tailscale/LAN base URL for interactive buttons (e.g. "http://192.168.1.50:19999" or "https://monitor.internal:19999")
     pub base_url: Option<String>,
 
+    /// Slack Incoming Webhook URL. When set, alerts go here instead of the bot token,
+    /// so the host never holds a token that can read Slack.
+    pub slack_webhook_url: Option<String>,
+
     /// Slack Bot OAuth Token (xoxb-...)
     pub slack_bot_token: Option<String>,
 
@@ -115,6 +119,7 @@ impl Default for Config {
             http_host: default_http_host(),
             auth_token: default_auth_token(),
             base_url: None,
+            slack_webhook_url: None,
             slack_bot_token: None,
             slack_channel: None,
             discord_webhook_url: None,
@@ -157,6 +162,12 @@ impl Config {
         config.cpu_threshold = cpu_threshold;
         config.mem_threshold_mb = mem_threshold_mb;
         config
+    }
+
+    /// Slack is on when a webhook URL is set, or a bot token and channel are both set.
+    pub fn slack_enabled(&self) -> bool {
+        let set = |v: &Option<String>| v.as_deref().is_some_and(|s| !s.is_empty());
+        set(&self.slack_webhook_url) || (set(&self.slack_bot_token) && set(&self.slack_channel))
     }
 
     pub fn get_server_name(&self) -> String {
@@ -256,6 +267,12 @@ impl Config {
         }
         if let Ok(val) = std::env::var("MANIAC_BASE_URL") {
             config.base_url = Some(val);
+        }
+
+        if config.slack_webhook_url.is_none() {
+            if let Ok(url) = std::env::var("MANIAC_SLACK_WEBHOOK_URL") {
+                config.slack_webhook_url = Some(url);
+            }
         }
 
         // Auto-discover Slack tokens from environment or ~/.config/maniac-killer/maniac-killer.env
