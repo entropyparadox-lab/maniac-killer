@@ -192,7 +192,9 @@ async fn main() {
                 config.cpu_threshold, config.cpu_streak
             );
             info!("  • Webhook Base URL: {}", base_url);
-            if let Some(chan) = &config.slack_channel {
+            if config.slack_webhook_url.is_some() {
+                info!("  • Slack Webhook: Enabled");
+            } else if let Some(chan) = &config.slack_channel {
                 info!("  • Slack Channel: {}", chan);
             }
             if config.discord_webhook_url.is_some() {

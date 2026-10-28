@@ -101,6 +101,9 @@ http_host = "0.0.0.0"
 base_url = "http://your-host.ts.net:19999"
 
 # Notification Channels (Configure any or all)
+# Slack: an Incoming Webhook URL takes priority over bot token + channel
+# (env MANIAC_SLACK_WEBHOOK_URL). It needs no token that can read Slack.
+slack_webhook_url = "https://hooks.slack.com/services/..."
 slack_bot_token = "xoxb-your-token"
 slack_channel = "C0B552ZK220" # e.g. #log-claude-status
 
